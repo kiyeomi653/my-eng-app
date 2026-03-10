@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Wisdom Master AI - Memory Care</title>
+    <title>Wisdom AI - Optimized</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -12,10 +12,9 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;900&display=swap');
         body { font-family: 'Pretendard', sans-serif; -webkit-tap-highlight-color: transparent; background-color: #f8fafc; color: #1e293b; margin: 0; }
-        .diff-red { color: #ef4444; font-weight: bold; text-decoration: underline; }
-        .animate-fade { animation: fadeIn 0.4s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .hint-badge { background: #ffffff; color: #4f46e5; padding: 6px 12px; border-radius: 14px; font-size: 0.85rem; font-weight: 600; border: 1px solid #e0e7ff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); cursor: pointer; }
+        .animate-fade { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .hint-badge { background: #ffffff; color: #4f46e5; padding: 6px 12px; border-radius: 14px; font-size: 0.85rem; font-weight: 600; border: 1px solid #e0e7ff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .dict-popup { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 8px; background: #1e293b; color: white; padding: 6px 12px; border-radius: 8px; font-size: 0.75rem; white-space: nowrap; z-index: 100; }
     </style>
 </head>
@@ -23,7 +22,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useRef } = React;
 
         function App() {
             const [user, setUser] = useState(localStorage.getItem('currentUser') || '');
@@ -33,86 +32,93 @@
             const [loading, setLoading] = useState(false);
             const [level, setLevel] = useState('Medium');
             const [history, setHistory] = useState([]);
+            
+            // API 호출 경쟁 상태 방지를 위한 Ref
+            const fetchIdRef = useRef(0);
 
             useEffect(() => {
                 if (user) {
                     const savedHistory = localStorage.getItem(`wisdomHistory_${user}`);
                     const savedLevel = localStorage.getItem(`wisdomLevel_${user}`);
                     setHistory(savedHistory ? JSON.parse(savedHistory) : []);
-                    setLevel(savedLevel || 'Medium');
-                    fetchNewQuote(savedLevel || 'Medium', savedHistory ? JSON.parse(savedHistory) : []);
+                    const initialLevel = savedLevel || 'Medium';
+                    setLevel(initialLevel);
+                    fetchNewQuote(initialLevel, savedHistory ? JSON.parse(savedHistory) : []);
                     localStorage.setItem('currentUser', user);
                 }
             }, [user]);
 
             const fetchNewQuote = async (targetLevel, currentHistory = history) => {
+                const currentFetchId = ++fetchIdRef.current;
                 setLoading(true);
+                setCurrentQuote(null); // 즉시 이전 문장 비우기
 
-                // 1. 망각곡선 로직: 20% 확률로 이전에 학습한 문장 재등장
-                if (currentHistory.length > 3 && Math.random() < 0.2) {
-                    const randomIndex = Math.floor(Math.random() * currentHistory.length);
-                    const reviewItem = currentHistory[randomIndex];
-                    setCurrentQuote({ author: "Review", def: reviewItem.def, ex: reviewItem.quote, isReview: true });
-                    setLoading(false);
+                // 20% 확률로 복습 문장 선택
+                if (currentHistory.length > 2 && Math.random() < 0.2) {
+                    const reviewItem = currentHistory[Math.floor(Math.random() * currentHistory.length)];
+                    if (currentFetchId === fetchIdRef.current) {
+                        setCurrentQuote({ author: "Review", def: reviewItem.def, ex: reviewItem.quote, isReview: true });
+                        setLoading(false);
+                    }
                     return;
                 }
 
-                // 2. 새 문장 가져오기 (단어 수 조건 충족할 때까지 반복)
+                let found = false;
                 let attempts = 0;
-                while (attempts < 5) {
+
+                while (!found && attempts < 15) { // 시도 횟수 상향
+                    attempts++;
                     try {
-                        const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://zenquotes.io/api/random`)}`);
+                        const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://zenquotes.io/api/random?${Date.now()}`)}`);
                         const json = await res.json();
                         const data = JSON.parse(json.contents)[0];
                         const wordCount = data.q.split(" ").length;
 
-                        // 난이도 조건 체크
+                        // 엄격한 단어 수 조건 체크
                         let isMatch = false;
                         if (targetLevel === 'Easy' && wordCount <= 6) isMatch = true;
                         else if (targetLevel === 'Medium' && wordCount >= 7 && wordCount <= 11) isMatch = true;
                         else if (targetLevel === 'Hard' && wordCount >= 12) isMatch = true;
 
-                        if (isMatch) {
+                        if (isMatch && currentFetchId === fetchIdRef.current) {
                             const transRes = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(data.q)}`);
                             const transData = await transRes.json();
                             setCurrentQuote({ author: data.a, def: transData[0][0][0], ex: data.q, isReview: false });
-                            break;
+                            found = true;
                         }
                     } catch (e) {
-                        console.error("API Error", e);
-                        break;
+                        console.error("Fetch error, retrying...");
                     }
-                    attempts++;
                 }
-                
-                // 조건 맞는 문장 못 찾을 시 기본값
-                if(!currentQuote && attempts >= 5) {
-                    setCurrentQuote({ author: "System", def: "꿈꿀 수 있다면 할 수 있다.", ex: "If you can dream it you can do it." });
+
+                if (!found && currentFetchId === fetchIdRef.current) {
+                    // 실패 시 기본 명언 제공
+                    setCurrentQuote({ author: "System", def: "할 수 있다고 믿으세요.", ex: "Believe you can." });
                 }
                 setLoading(false);
             };
 
+            const handleLevelChange = (newLevel) => {
+                if (loading) return; // 로딩 중 중복 클릭 방지
+                setLevel(newLevel);
+                localStorage.setItem(`wisdomLevel_${user}`, newLevel);
+                fetchNewQuote(newLevel);
+            };
+
             const saveToHistory = (quote, score) => {
-                const newEntry = {
-                    date: new Date().toLocaleDateString(),
-                    quote: quote.ex, def: quote.def, score: score,
-                    timestamp: Date.now()
-                };
+                const newEntry = { date: new Date().toLocaleDateString(), quote: quote.ex, def: quote.def, score: score };
                 const updated = [newEntry, ...history.filter(h => h.quote !== quote.ex)].slice(0, 50);
                 setHistory(updated);
                 localStorage.setItem(`wisdomHistory_${user}`, JSON.stringify(updated));
             };
 
-            const logout = () => { localStorage.removeItem('currentUser'); setUser(''); };
-
             if (!user) {
                 return (
-                    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-indigo-600">
-                        <div className="w-full max-w-sm bg-white p-10 rounded-[3rem] shadow-2xl animate-fade text-center">
-                            <h1 className="text-3xl font-black text-indigo-600 mb-2 italic">Wisdom AI</h1>
-                            <p className="text-slate-400 mb-8 font-medium">학습을 시작할 이름을 입력하세요.</p>
-                            <input id="nameInput" type="text" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl mb-4 outline-none font-bold" placeholder="이름" onKeyDown={(e) => e.key === 'Enter' && setUser(e.target.value)} />
-                            <button onClick={() => { const v = document.getElementById('nameInput').value; if(v) setUser(v); }} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg">시작하기</button>
+                    <div className="min-h-screen flex items-center justify-center p-6 bg-indigo-600">
+                        <div className="w-full max-w-sm bg-white p-10 rounded-[3rem] shadow-2xl animate-fade">
+                            <h1 className="text-2xl font-black text-indigo-600 mb-6 text-center">Wisdom AI Master</h1>
+                            <input id="userName" type="text" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl mb-4 outline-none font-bold text-center" placeholder="이름을 입력하세요" />
+                            <button onClick={() => { const val = document.getElementById('userName').value; if(val) setUser(val); }} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg">시작하기</button>
                         </div>
                     </div>
                 );
@@ -122,19 +128,17 @@
                 <div className="min-h-screen pb-10">
                     <header className="flex justify-between items-center p-5 bg-white shadow-sm sticky top-0 z-50">
                         <h1 className="text-xl font-bold text-indigo-600 flex items-center gap-2" onClick={() => setPage('dashboard')}>
-                            <i data-lucide="brain-circuit"></i> {user}'s Lab
+                            <i data-lucide="sparkles"></i> {user}
                         </h1>
                         <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 border rounded-xl"><i data-lucide="menu"></i></button>
                     </header>
 
                     {menuOpen && (
                         <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setMenuOpen(false)}>
-                            <div className="absolute right-4 top-16 w-56 bg-white rounded-3xl p-6 shadow-2xl space-y-4 animate-fade" onClick={e => e.stopPropagation()}>
-                                <div onClick={() => {setPage('dashboard'); setMenuOpen(false)}} className="flex items-center gap-4 p-3 font-bold cursor-pointer hover:bg-slate-50 rounded-xl"><i data-lucide="layout"></i> 홈</div>
-                                <div onClick={() => {setPage('quiz'); setMenuOpen(false)}} className="flex items-center gap-4 p-3 font-bold cursor-pointer hover:bg-slate-50 rounded-xl"><i data-lucide="pencil"></i> 퀴즈</div>
-                                <div onClick={() => {setPage('history'); setMenuOpen(false)}} className="flex items-center gap-4 p-3 font-bold cursor-pointer hover:bg-slate-50 rounded-xl"><i data-lucide="history"></i> 기록</div>
-                                <hr />
-                                <div onClick={logout} className="flex items-center gap-4 p-3 font-bold cursor-pointer text-red-500"><i data-lucide="log-out"></i> 로그아웃</div>
+                            <div className="absolute right-4 top-16 w-52 bg-white rounded-3xl p-4 shadow-2xl space-y-2 animate-fade" onClick={e => e.stopPropagation()}>
+                                <div onClick={() => {setPage('dashboard'); setMenuOpen(false)}} className="p-3 font-bold cursor-pointer hover:bg-slate-50 rounded-xl flex items-center gap-3"><i data-lucide="home" size="18"></i> 홈</div>
+                                <div onClick={() => {setPage('history'); setMenuOpen(false)}} className="p-3 font-bold cursor-pointer hover:bg-slate-50 rounded-xl flex items-center gap-3"><i data-lucide="history" size="18"></i> 기록</div>
+                                <div onClick={() => {localStorage.removeItem('currentUser'); setUser('');}} className="p-3 font-bold cursor-pointer text-red-500 flex items-center gap-3"><i data-lucide="log-out" size="18"></i> 로그아웃</div>
                             </div>
                         </div>
                     )}
@@ -143,32 +147,33 @@
                         {page === 'dashboard' && (
                             <div className="space-y-6 animate-fade">
                                 <div className="bg-white p-6 rounded-[2rem] border shadow-sm">
-                                    <h3 className="text-xs font-bold text-slate-400 mb-4 uppercase tracking-widest">난이도별 단어 수</h3>
-                                    <div className="grid grid-cols-3 gap-3 text-[11px]">
+                                    <h3 className="text-[10px] font-black text-slate-400 mb-4 uppercase tracking-widest text-center">난이도별 단어 수 필터링</h3>
+                                    <div className="grid grid-cols-3 gap-2">
                                         {['Easy', 'Medium', 'Hard'].map(l => (
-                                            <button key={l} onClick={() => {setLevel(l); fetchNewQuote(l);}} className={`py-3 rounded-2xl font-bold transition ${level === l ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500'}`}>
-                                                {l === 'Easy' ? '초급 (≤6)' : l === 'Medium' ? '중급 (7-11)' : '고급 (≥12)'}
+                                            <button key={l} onClick={() => handleLevelChange(l)} className={`py-3 rounded-2xl font-bold text-xs transition ${level === l ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500'}`}>
+                                                {l === 'Easy' ? '초급(≤6)' : l === 'Medium' ? '중급(7-11)' : '고급(≥12)'}
                                             </button>
                                         ))}
                                     </div>
                                 </div>
-                                <div className="bg-indigo-600 p-8 rounded-[2.5rem] text-white shadow-xl relative min-h-[220px] flex flex-col justify-between overflow-hidden">
-                                    <div>
+                                <div className="bg-indigo-600 p-8 rounded-[2.5rem] text-white shadow-xl min-h-[220px] flex flex-col justify-between relative overflow-hidden">
+                                    <div className="relative z-10">
                                         <div className="flex justify-between items-center mb-4">
-                                            <span className="text-[10px] font-black tracking-widest uppercase px-2 py-1 bg-white/20 rounded-lg">
-                                                {currentQuote?.isReview ? "🔄 복습하기" : "🆕 새로운 문장"}
+                                            <span className="text-[10px] font-black uppercase bg-white/20 px-2 py-1 rounded-lg">
+                                                {currentQuote?.isReview ? "Review Mode" : "New Learning"}
                                             </span>
-                                            <button onClick={() => fetchNewQuote(level)} className="hover:rotate-180 transition-transform duration-500"><i data-lucide="refresh-cw" size="18"></i></button>
+                                            <button onClick={() => fetchNewQuote(level)} className={`${loading ? 'animate-spin' : ''}`} disabled={loading}><i data-lucide="refresh-cw" size="18"></i></button>
                                         </div>
-                                        <h2 className="text-2xl font-black leading-tight mb-6">
-                                            {loading ? "학습 데이터 선별 중..." : `"${currentQuote?.def}"`}
+                                        <h2 className="text-2xl font-black leading-tight mb-4 min-h-[3rem]">
+                                            {loading ? "적절한 문장을 찾는 중..." : currentQuote ? `"${currentQuote.def}"` : ""}
                                         </h2>
                                     </div>
-                                    <button onClick={() => setPage('quiz')} className="bg-white text-indigo-600 w-full py-4 rounded-2xl font-black shadow-lg active:scale-95 transition">트레이닝 시작</button>
+                                    <button onClick={() => setPage('quiz')} disabled={!currentQuote || loading} className="bg-white text-indigo-600 w-full py-4 rounded-2xl font-black shadow-lg disabled:opacity-50 transition-opacity">
+                                        퀴즈 시작하기
+                                    </button>
                                 </div>
                             </div>
                         )}
-
                         {page === 'quiz' && <QuizView currentQuote={currentQuote} fetchNewQuote={() => fetchNewQuote(level)} saveToHistory={saveToHistory} loading={loading} />}
                         {page === 'history' && <HistoryView history={history} user={user} />}
                     </main>
@@ -177,7 +182,6 @@
             );
         }
 
-        // --- 퀴즈/힌트 컴포넌트 생략 방지 ---
         function HintWord({ word }) {
             const [meaning, setMeaning] = useState(null);
             const getMeaning = async () => {
@@ -217,14 +221,14 @@
                 <div className="space-y-4 animate-fade">
                     <div className="bg-white p-6 rounded-[2rem] border shadow-sm">
                         <div className="flex justify-between mb-4 items-center">
-                            <span className="text-[10px] font-black text-indigo-500 uppercase">{currentQuote?.isReview ? "복습 모드" : "일반 모드"}</span>
+                            <span className="text-[10px] font-black text-indigo-500 uppercase">{currentQuote?.isReview ? "복습" : "신규"}</span>
                             <button onClick={() => setShowHint(!showHint)} className="text-xs font-bold text-slate-400 flex items-center gap-1"><i data-lucide="info" size="14"></i> 단어 힌트</button>
                         </div>
-                        <h3 className="text-xl font-bold mb-6 italic">"{loading ? "분석 중..." : currentQuote?.def}"</h3>
+                        <h3 className="text-xl font-bold mb-6 italic">"{currentQuote?.def}"</h3>
                         {showHint && <div className="mb-6 p-4 bg-indigo-50 rounded-2xl flex flex-wrap gap-3">{shuffledWords.map((w, i) => <HintWord key={i} word={w} />)}</div>}
-                        <textarea className="w-full h-32 p-4 bg-slate-50 border-none rounded-2xl outline-none text-lg" placeholder="영문 작문..." value={input} onChange={(e) => setInput(e.target.value)} />
+                        <textarea className="w-full h-32 p-4 bg-slate-50 border-none rounded-2xl outline-none text-lg" placeholder="영어로 작문..." value={input} onChange={(e) => setInput(e.target.value)} />
                         {!result ? <button onClick={handleCheck} className="w-full mt-4 bg-indigo-600 text-white py-4 rounded-2xl font-black">정답 확인</button> 
-                                 : <button onClick={() => {setResult(null); setInput(''); setShowHint(false); fetchNewQuote();}} className="w-full mt-4 bg-slate-900 text-white py-4 rounded-2xl font-black">다음 단계</button>}
+                                 : <button onClick={() => {setResult(null); setInput(''); setShowHint(false); fetchNewQuote();}} className="w-full mt-4 bg-slate-900 text-white py-4 rounded-2xl font-black">다음 명언</button>}
                     </div>
                     {result && (
                         <div className="bg-white p-6 rounded-[2.5rem] border shadow-xl animate-fade">
@@ -240,8 +244,7 @@
             return (
                 <div className="space-y-4 animate-fade">
                     <h2 className="text-xl font-black px-2">{user}'s History</h2>
-                    {history.length === 0 ? <div className="py-20 text-center text-slate-400 font-bold">기록이 없습니다.</div> : 
-                    history.map((h, i) => (
+                    {history.map((h, i) => (
                         <div key={i} className="bg-white p-5 rounded-3xl border shadow-sm flex justify-between items-center">
                             <div className="flex-1 pr-4">
                                 <p className="text-[10px] font-bold text-slate-300 mb-1">{h.date}</p>
