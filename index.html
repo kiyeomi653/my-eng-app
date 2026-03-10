@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Wisdom AI Tutor</title>
+    <title>Infinite Wisdom AI</title>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -15,6 +15,8 @@
         .diff-red { color: #ef4444; font-weight: bold; text-decoration: underline; }
         .diff-green { color: #10b981; font-weight: bold; }
         .hint-badge { background: #e0e7ff; color: #4338ca; padding: 4px 10px; border-radius: 12px; font-size: 0.85rem; font-weight: 600; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade { animation: fadeIn 0.5s ease-out; }
     </style>
 </head>
 <body>
@@ -23,25 +25,42 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- 인터넷에서 엄선한 유명 명언/격언 데이터베이스 ---
-        const QUOTES_DB = [
-            { author: "Steve Jobs", def: "여정 그 자체가 보상이다.", ex: "The journey is the reward." },
-            { author: "Walt Disney", def: "꿈꿀 수 있다면, 그것을 이룰 수 있다.", ex: "If you can dream it, you can do it." },
-            { author: "Helen Keller", def: "낙관주의는 성취로 인도하는 믿음이다.", ex: "Optimism is the faith that leads to achievement." },
-            { author: "Albert Einstein", def: "어제로부터 배우고, 오늘을 살며, 내일을 희망하라.", ex: "Learn from yesterday, live for today, hope for tomorrow." },
-            { author: "Confucius", def: "어디를 가든지 마음을 다해 가라.", ex: "Wherever you go, go with all your heart." },
-            { author: "Oscar Wilde", def: "당신 자신이 되어라. 다른 사람들은 이미 자리가 찼다.", ex: "Be yourself; everyone else is already taken." },
-            { author: "Mark Twain", def: "앞서가는 비결은 시작하는 것이다.", ex: "The secret of getting ahead is getting started." },
-            { author: "Mahatma Gandhi", def: "미래는 현재 우리가 무엇을 하는가에 달려 있다.", ex: "The future depends on what we do in the present." },
-            { author: "Roosevelt", def: "당신이 할 수 있다고 믿으면, 이미 절반은 온 것이다.", ex: "Believe you can and you're halfway there." },
-            { author: "Aristotle", def: "탁월함은 행동이 아니라 습관이다.", ex: "Excellence is not an act, but a habit." }
-        ];
-
         function App() {
             const [page, setPage] = useState('dashboard');
             const [menuOpen, setMenuOpen] = useState(false);
-            const [currentQuote, setCurrentQuote] = useState(QUOTES_DB[0]);
+            const [currentQuote, setCurrentQuote] = useState(null);
+            const [loading, setLoading] = useState(true);
             const [progress, setProgress] = useState({ done: 0 });
+
+            // --- 실시간 명언 API 호출 및 자동 번역 기능 ---
+            const fetchNewQuote = async () => {
+                setLoading(true);
+                try {
+                    // 1. 영어 명언 가져오기
+                    const res = await fetch("https://api.quotable.io/random?minLength=30&maxLength=80");
+                    const data = await res.json();
+                    
+                    // 2. 한국어로 자동 번역하기
+                    const transRes = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(data.content)}`);
+                    const transData = await transRes.json();
+                    
+                    setCurrentQuote({
+                        author: data.author,
+                        def: transData[0][0][0], // 번역된 뜻
+                        ex: data.content        // 원문 영어
+                    });
+                } catch (e) {
+                    console.error("데이터 로드 실패:", e);
+                    setCurrentQuote({
+                        author: "System",
+                        def: "인터넷 연결을 확인해주세요.",
+                        ex: "Please check your internet connection."
+                    });
+                }
+                setLoading(false);
+            };
+
+            useEffect(() => { fetchNewQuote(); }, []);
 
             const speak = (text) => {
                 window.speechSynthesis.cancel();
@@ -51,16 +70,22 @@
                 window.speechSynthesis.speak(s);
             };
 
-            const getNextQuote = () => {
-                const next = QUOTES_DB[Math.floor(Math.random() * QUOTES_DB.length)];
-                setCurrentQuote(next);
-            };
+            if (loading && !currentQuote) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-indigo-600">
+                        <div className="text-center text-white">
+                            <div className="animate-spin mb-4 inline-block"><i data-lucide="loader-2" size="48"></i></div>
+                            <p className="font-black text-xl">AI가 새로운 명언을 찾는 중...</p>
+                        </div>
+                    </div>
+                );
+            }
 
             return (
                 <div className="min-h-screen pb-10">
                     <header className="flex justify-between items-center p-5 bg-white shadow-sm sticky top-0 z-50">
                         <h1 className="text-xl font-bold text-indigo-600 flex items-center gap-2">
-                            <i data-lucide="sparkles" size="20"></i> Wisdom AI
+                            <i data-lucide="cloud-lightning" size="20"></i> Infinite AI
                         </h1>
                         <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 border rounded-xl active:bg-slate-50">
                             <i data-lucide="menu"></i>
@@ -70,30 +95,35 @@
                     {menuOpen && (
                         <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setMenuOpen(false)}>
                             <div className="absolute right-4 top-16 w-56 bg-white rounded-3xl p-6 shadow-2xl space-y-4" onClick={e => e.stopPropagation()}>
-                                <div onClick={() => {setPage('dashboard'); setMenuOpen(false)}} className="flex items-center gap-3 font-bold p-2"><i data-lucide="layout"></i> 대시보드</div>
-                                <div onClick={() => {setPage('quiz'); setMenuOpen(false)}} className="flex items-center gap-3 font-bold p-2 text-indigo-600"><i data-lucide="pencil"></i> 명언 영작 퀴즈</div>
+                                <div onClick={() => {setPage('dashboard'); setMenuOpen(false)}} className="flex items-center gap-3 font-bold p-2 cursor-pointer"><i data-lucide="layout"></i> 홈</div>
+                                <div onClick={() => {setPage('quiz'); setMenuOpen(false)}} className="flex items-center gap-3 font-bold p-2 text-indigo-600 cursor-pointer"><i data-lucide="pencil"></i> 무한 영작 퀴즈</div>
                             </div>
                         </div>
                     )}
 
                     <main className="p-5 max-w-md mx-auto">
                         {page === 'dashboard' && (
-                            <div className="space-y-6">
-                                <div className="bg-indigo-600 p-8 rounded-[2.5rem] text-white shadow-xl shadow-indigo-100 animate-in fade-in zoom-in duration-500">
-                                    <p className="opacity-80 font-medium mb-1 uppercase text-xs tracking-widest">Today's Wisdom</p>
-                                    <h2 className="text-3xl font-black mb-4 leading-tight">"{currentQuote.def}"</h2>
-                                    <p className="text-indigo-200 text-sm font-bold">- {currentQuote.author}</p>
+                            <div className="space-y-6 animate-fade">
+                                <div className="bg-indigo-600 p-8 rounded-[2.5rem] text-white shadow-xl">
+                                    <p className="opacity-80 font-medium mb-1 text-xs tracking-widest uppercase">Now Loading Wisdom</p>
+                                    <h2 className="text-3xl font-black mb-4 leading-tight">"{currentQuote?.def}"</h2>
+                                    <p className="text-indigo-200 text-sm font-bold">- {currentQuote?.author}</p>
                                 </div>
-                                <button onClick={() => setPage('quiz')} className="w-full bg-white border-2 border-indigo-600 text-indigo-600 py-4 rounded-2xl font-black shadow-sm active:scale-95 transition">영작 챌린지 시작</button>
+                                <div className="bg-white p-6 rounded-3xl border shadow-sm text-center">
+                                    <p className="text-slate-400 text-xs font-bold mb-1">오늘 완료한 문장</p>
+                                    <p className="text-3xl font-black text-slate-800">{progress.done}</p>
+                                </div>
+                                <button onClick={() => setPage('quiz')} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black shadow-lg active:scale-95 transition">학습 시작하기</button>
                             </div>
                         )}
 
                         {page === 'quiz' && (
                             <QuizView 
                                 currentQuote={currentQuote} 
-                                getNextQuote={getNextQuote} 
+                                fetchNewQuote={fetchNewQuote} 
                                 setProgress={setProgress} 
-                                speak={speak} 
+                                speak={speak}
+                                loading={loading}
                             />
                         )}
                     </main>
@@ -102,32 +132,25 @@
             );
         }
 
-        // --- 퀴즈 및 힌트 컴포넌트 ---
-        function QuizView({ currentQuote, getNextQuote, setProgress, speak }) {
+        function QuizView({ currentQuote, fetchNewQuote, setProgress, speak, loading }) {
             const [input, setInput] = useState('');
             const [result, setResult] = useState(null);
             const [showHint, setShowHint] = useState(false);
             const [translated, setTranslated] = useState('');
 
-            // 힌트용 단어 셔플 (명언의 단어들을 섞음)
             const shuffledWords = useMemo(() => {
-                return currentQuote.ex
-                    .replace(/[.,!;]/g, "")
-                    .split(" ")
-                    .sort(() => Math.random() - 0.5);
+                if (!currentQuote) return [];
+                return currentQuote.ex.replace(/[.,!;]/g, "").split(" ").sort(() => Math.random() - 0.5);
             }, [currentQuote]);
 
             const handleCheck = async () => {
                 if(!input.trim()) return;
-
-                // 구글 번역 호출
                 try {
                     const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(input)}`);
                     const data = await res.json();
                     setTranslated(data[0][0][0]);
                 } catch(e) { setTranslated("번역 오류"); }
 
-                // 결과 분석
                 const userWords = input.trim().split(/\s+/);
                 const targetWords = currentQuote.ex.trim().split(/\s+/);
                 const diff = userWords.map((word, i) => ({
@@ -137,33 +160,32 @@
 
                 setResult(diff);
                 setProgress(p => ({...p, done: p.done + 1}));
-                speak(currentQuote.ex); // 정답 읽어주기
+                speak(currentQuote.ex);
             };
 
-            const reset = () => {
+            const reset = async () => {
                 setResult(null);
                 setInput('');
                 setShowHint(false);
                 setTranslated('');
-                getNextQuote();
+                await fetchNewQuote();
             };
 
             return (
-                <div className="space-y-4 animate-in slide-in-from-bottom-6 duration-500">
-                    <div className="bg-white p-6 rounded-[2rem] border shadow-sm relative">
-                        <div className="flex justify-between items-start mb-4">
-                            <span className="text-xs font-black text-indigo-500 uppercase tracking-widest italic">영작 챌린지</span>
-                            <button onClick={() => setShowHint(!showHint)} className="text-xs font-bold text-slate-400 flex items-center gap-1 hover:text-indigo-600 transition">
-                                <i data-lucide="help-circle" size="14"></i> {showHint ? "힌트 숨기기" : "힌트 보기"}
+                <div className="space-y-4 animate-fade">
+                    <div className="bg-white p-6 rounded-[2rem] border shadow-sm">
+                        <div className="flex justify-between mb-4">
+                            <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Random Challenge</span>
+                            <button onClick={() => setShowHint(!showHint)} className="text-xs font-bold text-slate-400 flex items-center gap-1">
+                                <i data-lucide="lightbulb" size="14"></i> {showHint ? "힌트 끄기" : "힌트 켜기"}
                             </button>
                         </div>
                         
                         <h3 className="text-xl font-bold text-slate-800 mb-2 leading-relaxed">"{currentQuote.def}"</h3>
-                        <p className="text-slate-400 text-sm mb-6">- {currentQuote.author}</p>
+                        <p className="text-slate-400 text-sm mb-6 font-medium italic">- {currentQuote.author}</p>
 
                         {showHint && (
-                            <div className="mb-6 p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 animate-in fade-in slide-in-from-top-2">
-                                <p className="text-[10px] font-black text-indigo-400 uppercase mb-2 tracking-widest">사용될 단어들 (랜덤 순서)</p>
+                            <div className="mb-6 p-4 bg-indigo-50 rounded-2xl border border-indigo-100 animate-in zoom-in-95">
                                 <div className="flex flex-wrap gap-2">
                                     {shuffledWords.map((w, i) => <span key={i} className="hint-badge">{w}</span>)}
                                 </div>
@@ -171,43 +193,44 @@
                         )}
 
                         <textarea 
-                            className="w-full h-32 p-4 bg-slate-50 border-none rounded-2xl outline-none text-lg focus:ring-2 focus:ring-indigo-500 transition-all" 
-                            placeholder="위 명언을 영어로 작문해 보세요..." 
+                            className="w-full h-32 p-4 bg-slate-50 border-none rounded-2xl outline-none text-lg focus:ring-2 focus:ring-indigo-500" 
+                            placeholder="명언을 영어로 옮겨보세요..." 
                             value={input} 
                             onChange={(e) => setInput(e.target.value)} 
+                            disabled={loading}
                         />
                         
                         {!result ? (
-                            <button onClick={handleCheck} className="w-full mt-4 bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-indigo-100 active:scale-95 transition">
-                                정답 확인 및 AI 분석
+                            <button onClick={handleCheck} disabled={loading} className="w-full mt-4 bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg">
+                                {loading ? "분석 중..." : "정답 확인"}
                             </button>
                         ) : (
-                            <button onClick={reset} className="w-full mt-4 bg-slate-900 text-white py-4 rounded-2xl font-black shadow-lg active:scale-95 transition">
-                                다음 명언 도전하기
+                            <button onClick={reset} disabled={loading} className="w-full mt-4 bg-slate-900 text-white py-4 rounded-2xl font-black shadow-lg">
+                                {loading ? "새로운 문장 가져오는 중..." : "다음 문장 도전하기"}
                             </button>
                         )}
                     </div>
 
                     {result && (
-                        <div className="bg-white p-6 rounded-[2.5rem] border shadow-2xl space-y-5 animate-in zoom-in-95 duration-300 border-indigo-100">
+                        <div className="bg-white p-6 rounded-[2.5rem] border shadow-2xl space-y-4 border-indigo-100 animate-in slide-in-from-bottom-4">
                             <div>
-                                <h4 className="text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">나의 작문 분석</h4>
-                                <div className="text-lg flex flex-wrap gap-x-2 leading-relaxed">
+                                <h4 className="text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">분석 결과</h4>
+                                <div className="text-lg flex flex-wrap gap-x-2">
                                     {result.map((item, i) => (
                                         <span key={i} className={item.isCorrect ? "text-emerald-500 font-bold" : "diff-red"}>{item.word}</span>
                                     ))}
                                 </div>
                             </div>
-                            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
-                                <h4 className="text-[10px] font-black text-emerald-600 mb-1 uppercase tracking-widest italic">정답 가이드</h4>
-                                <div className="flex justify-between items-center">
-                                    <p className="text-emerald-900 font-black leading-relaxed">{currentQuote.ex}</p>
-                                    <button onClick={() => speak(currentQuote.ex)} className="text-emerald-600 p-2"><i data-lucide="volume-2" size="20"></i></button>
+                            <div className="p-4 bg-indigo-50 rounded-2xl">
+                                <div className="flex justify-between items-center mb-1">
+                                    <h4 className="text-[10px] font-black text-indigo-400 uppercase">원문 명언</h4>
+                                    <button onClick={() => speak(currentQuote.ex)}><i data-lucide="volume-2" size="18" className="text-indigo-600"></i></button>
                                 </div>
+                                <p className="text-indigo-900 font-black leading-relaxed">{currentQuote.ex}</p>
                             </div>
                             <div className="pt-2">
-                                <h4 className="text-[10px] font-black text-indigo-400 mb-1 uppercase tracking-widest">내 문장의 의미</h4>
-                                <p className="text-slate-600 font-medium italic">"{translated}"</p>
+                                <h4 className="text-[10px] font-black text-slate-300 mb-1 uppercase">내가 쓴 문장의 의미</h4>
+                                <p className="text-slate-600 font-medium italic text-sm">"{translated}"</p>
                             </div>
                         </div>
                     )}
