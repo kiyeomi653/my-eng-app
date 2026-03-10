@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Wisdom AI - Full Version</title>
+    <title>Wisdom AI - DB Manager</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -15,16 +15,14 @@
         .animate-fade { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         .btn-active:active { transform: scale(0.95); }
-        .hint-badge { background: #ffffff; color: #4f46e5; padding: 6px 12px; border-radius: 14px; font-size: 0.85rem; font-weight: 600; border: 1px solid #e0e7ff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); cursor: pointer; }
-        .dict-popup { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 8px; background: #1e293b; color: white; padding: 6px 12px; border-radius: 8px; font-size: 0.75rem; white-space: nowrap; z-index: 100; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
-        const POOL_KEY = 'wisdom_quote_pool_v2';
+        const { useState, useEffect, useMemo, useCallback } = React;
+        const POOL_KEY = 'wisdom_quote_pool_v3';
 
         function App() {
             const [user, setUser] = useState(localStorage.getItem('currentUser') || '');
@@ -33,10 +31,12 @@
             const [level, setLevel] = useState(null);
             const [currentQuote, setCurrentQuote] = useState(null);
             const [history, setHistory] = useState([]);
-            const [pool, setPool] = useState(JSON.parse(localStorage.getItem(POOL_KEY)) || { Easy: [], Medium: [], Hard: [] });
-            const [loading, setLoading] = useState(false);
+            const [pool, setPool] = useState(() => {
+                const saved = localStorage.getItem(POOL_KEY);
+                return saved ? JSON.parse(saved) : { Easy: [], Medium: [], Hard: [] };
+            });
+            const [isFilling, setIsFilling] = useState(false);
 
-            // 초기 로드
             useEffect(() => {
                 if (user) {
                     const savedHistory = localStorage.getItem(`wisdomHistory_${user}`);
@@ -45,12 +45,12 @@
                 }
             }, [user]);
 
-            // 풀 저장
             useEffect(() => {
                 localStorage.setItem(POOL_KEY, JSON.stringify(pool));
             }, [pool]);
 
             const speak = (text) => {
+                if(!text) return;
                 window.speechSynthesis.cancel();
                 const s = new SpeechSynthesisUtterance(text);
                 s.lang = 'en-US'; s.rate = 0.85;
@@ -60,77 +60,73 @@
             const fetchQuote = async (targetLevel) => {
                 try {
                     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://zenquotes.io/api/random?cb=${Math.random()}`)}`);
-                    const data = JSON.parse((await res.json()).contents)[0];
+                    const json = await res.json();
+                    const data = JSON.parse(json.contents)[0];
+                    if(!data || !data.q) return null;
+
                     const words = data.q.split(" ").length;
                     const isMatch = (targetLevel === 'Easy' && words <= 6) ||
                                  (targetLevel === 'Medium' && words >= 7 && words <= 11) ||
                                  (targetLevel === 'Hard' && words >= 12);
+
                     if (isMatch) {
                         const tRes = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(data.q)}`);
                         const tData = await tRes.json();
-                        return { def: tData[0][0][0], ex: data.q };
+                        return { def: tData[0][0][0], ex: data.q, id: Date.now() + Math.random() };
                     }
-                } catch (e) { return null; }
+                } catch (e) { console.error("Fetch Error:", e); return null; }
                 return null;
             };
 
             const fillPool = async () => {
-                ['Easy', 'Medium', 'Hard'].forEach(async (l) => {
-                    let currentLen = pool[l]?.length || 0;
-                    while (currentLen < 5) {
+                if(isFilling) return;
+                setIsFilling(true);
+                const levels = ['Easy', 'Medium', 'Hard'];
+                for (const l of levels) {
+                    let attempts = 0;
+                    while ((pool[l] || []).length < 5 && attempts < 10) {
                         const q = await fetchQuote(l);
                         if (q) {
                             setPool(prev => ({ ...prev, [l]: [...(prev[l] || []), q] }));
-                            currentLen++;
                         }
+                        attempts++;
                     }
-                });
+                }
+                setIsFilling(false);
             };
 
             const getNextQuote = (targetLevel) => {
-                setLoading(true);
-                // 망각곡선 복습 (15% 확률)
                 if (history.length > 3 && Math.random() < 0.15) {
                     const rev = history[Math.floor(Math.random() * history.length)];
-                    setCurrentQuote({ ...rev, ex: rev.quote, isReview: true });
-                    setLoading(false);
+                    setCurrentQuote({ def: rev.def, ex: rev.quote, isReview: true });
                     return;
                 }
 
-                if (pool[targetLevel] && pool[targetLevel].length > 0) {
-                    const next = pool[targetLevel][0];
+                const currentPool = pool[targetLevel] || [];
+                if (currentPool.length > 0) {
+                    const next = currentPool[0];
                     setCurrentQuote({ ...next, isReview: false });
                     setPool(prev => ({ ...prev, [targetLevel]: prev[targetLevel].slice(1) }));
-                    setLoading(false);
                     fillPool();
                 } else {
-                    fetchQuote(targetLevel).then(q => {
-                        setCurrentQuote(q);
-                        setLoading(false);
-                    });
+                    // 비상용 기본 문장 (흰 화면 방지)
+                    setCurrentQuote({ def: "계속해서 나아가세요.", ex: "Keep moving forward.", isReview: false });
+                    fillPool();
                 }
             };
 
-            const saveResult = (quote, score) => {
-                const newHistory = [{ date: new Date().toLocaleDateString(), quote: quote.ex, def: quote.def, score }, ...history].slice(0, 50);
-                setHistory(newHistory);
-                localStorage.setItem(`wisdomHistory_${user}`, JSON.stringify(newHistory));
-            };
-
-            const logout = () => {
-                localStorage.removeItem('currentUser');
-                setUser('');
-                setPage('dashboard');
-                setMenuOpen(false);
+            const clearPool = () => {
+                const empty = { Easy: [], Medium: [], Hard: [] };
+                setPool(empty);
+                fillPool();
             };
 
             if (!user) {
                 return (
                     <div className="min-h-screen flex items-center justify-center bg-indigo-600 p-6">
-                        <div className="bg-white p-10 rounded-[3rem] w-full max-w-xs shadow-2xl text-center animate-fade">
-                            <h1 className="text-3xl font-black text-indigo-600 mb-2 italic">Wisdom AI</h1>
-                            <p className="text-slate-400 text-sm mb-8">당신의 이름을 입력해주세요</p>
-                            <input id="u_name" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl mb-4 font-bold outline-none focus:border-indigo-400 transition-all text-center" placeholder="Name" onKeyDown={(e) => e.key === 'Enter' && setUser(e.target.value)} />
+                        <div className="bg-white p-10 rounded-[3rem] w-full max-w-xs shadow-2xl text-center">
+                            <h1 className="text-3xl font-black text-indigo-600 mb-8 italic tracking-tighter">Wisdom AI</h1>
+                            <input id="u_name" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl mb-4 font-bold outline-none text-center" placeholder="이름 입력" />
                             <button onClick={() => {const v=document.getElementById('u_name').value; if(v) setUser(v)}} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg btn-active">시작하기</button>
                         </div>
                     </div>
@@ -139,24 +135,23 @@
 
             return (
                 <div className="min-h-screen pb-10 max-w-md mx-auto relative">
-                    {/* 상단 헤더 및 메뉴 버튼 복구 */}
-                    <header className="p-5 flex justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-50">
+                    <header className="p-5 flex justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm">
                         <h1 className="font-black text-xl text-indigo-600 flex items-center gap-2" onClick={() => {setPage('dashboard'); setLevel(null);}}>
-                            <i data-lucide="sparkles"></i> {user}'s Lab
+                            <i data-lucide="zap"></i> {user}
                         </h1>
                         <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 bg-slate-100 rounded-xl text-slate-600 btn-active">
                             <i data-lucide={menuOpen ? "x" : "menu"}></i>
                         </button>
                     </header>
 
-                    {/* 슬라이드 메뉴 */}
                     {menuOpen && (
                         <div className="fixed inset-0 bg-black/40 z-40 animate-fade" onClick={() => setMenuOpen(false)}>
-                            <div className="absolute right-4 top-20 w-56 bg-white rounded-[2rem] p-6 shadow-2xl space-y-3" onClick={e => e.stopPropagation()}>
-                                <div onClick={() => {setPage('dashboard'); setMenuOpen(false)}} className="flex items-center gap-4 p-3 font-bold hover:bg-slate-50 rounded-xl cursor-pointer"><i data-lucide="home" size="18"></i> 홈으로</div>
-                                <div onClick={() => {setPage('history'); setMenuOpen(false)}} className="flex items-center gap-4 p-3 font-bold hover:bg-slate-50 rounded-xl cursor-pointer"><i data-lucide="history" size="18"></i> 학습 기록</div>
-                                <hr className="border-slate-100" />
-                                <div onClick={logout} className="flex items-center gap-4 p-3 font-bold text-red-500 hover:bg-red-50 rounded-xl cursor-pointer"><i data-lucide="log-out" size="18"></i> 로그아웃</div>
+                            <div className="absolute right-4 top-20 w-60 bg-white rounded-[2rem] p-6 shadow-2xl space-y-3" onClick={e => e.stopPropagation()}>
+                                <div onClick={() => {setPage('dashboard'); setMenuOpen(false)}} className="flex items-center gap-4 p-3 font-bold hover:bg-slate-50 rounded-xl cursor-pointer"><i data-lucide="home" size="18"></i> 홈</div>
+                                <div onClick={() => {setPage('history'); setMenuOpen(false)}} className="flex items-center gap-4 p-3 font-bold hover:bg-slate-50 rounded-xl cursor-pointer"><i data-lucide="history" size="18"></i> 기록</div>
+                                <div onClick={() => {setPage('db_manager'); setMenuOpen(false)}} className="flex items-center gap-4 p-3 font-bold hover:bg-slate-50 rounded-xl cursor-pointer text-indigo-600"><i data-lucide="database" size="18"></i> DB 현황</div>
+                                <hr />
+                                <div onClick={() => {localStorage.removeItem('currentUser'); setUser('');}} className="flex items-center gap-4 p-3 font-bold text-red-500 hover:bg-red-50 rounded-xl cursor-pointer"><i data-lucide="log-out" size="18"></i> 로그아웃</div>
                             </div>
                         </div>
                     )}
@@ -165,82 +160,107 @@
                         {page === 'dashboard' && (
                             <div className="space-y-6 animate-fade">
                                 <div className="bg-white p-6 rounded-[2.5rem] border shadow-sm">
-                                    <h3 className="text-[10px] font-black text-slate-400 mb-4 text-center uppercase tracking-widest">난이도를 선택하세요</h3>
+                                    <div className="flex justify-between items-center mb-4 px-2">
+                                        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">난이도 선택</h3>
+                                        {isFilling && <span className="text-[10px] text-indigo-400 font-bold animate-pulse">DB 충전 중...</span>}
+                                    </div>
                                     <div className="grid grid-cols-3 gap-2">
                                         {['Easy', 'Medium', 'Hard'].map(l => (
-                                            <button key={l} onClick={() => {setLevel(l); getNextQuote(l)}} className={`py-4 rounded-2xl font-black text-xs transition-all btn-active ${level === l ? 'bg-indigo-600 text-white shadow-lg scale-105' : 'bg-slate-50 text-slate-400'}`}>
+                                            <button key={l} onClick={() => {setLevel(l); getNextQuote(l)}} className={`py-4 rounded-2xl font-black text-xs transition-all btn-active ${level === l ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-50 text-slate-400'}`}>
                                                 {l === 'Easy' ? '초급' : l === 'Medium' ? '중급' : '고급'}
                                             </button>
                                         ))}
                                     </div>
                                 </div>
 
-                                {!level ? (
-                                    <div className="py-20 text-center text-slate-300 font-bold animate-pulse">
-                                        <i data-lucide="mouse-pointer-click" className="mx-auto mb-2 opacity-20" size="48"></i>
-                                        난이도를 선택하면<br/>새 문장이 준비됩니다.
-                                    </div>
-                                ) : (
+                                {level && currentQuote && (
                                     <div className="bg-indigo-600 p-8 rounded-[3rem] text-white shadow-xl min-h-[250px] flex flex-col justify-between animate-fade relative overflow-hidden">
                                         <div className="flex justify-between items-center relative z-10">
                                             <span className="text-[10px] font-black bg-white/20 px-3 py-1 rounded-full uppercase">
-                                                {currentQuote?.isReview ? 'Review' : `${level} Level`}
+                                                {currentQuote.isReview ? 'Review' : `${level} Level`}
                                             </span>
-                                            <button onClick={() => getNextQuote(level)} className={`p-1 ${loading ? 'animate-spin' : ''}`}>
-                                                <i data-lucide="refresh-cw" size="18"></i>
-                                            </button>
+                                            <button onClick={() => getNextQuote(level)}><i data-lucide="refresh-cw" size="18"></i></button>
                                         </div>
-                                        <h2 className="text-2xl font-black leading-tight italic my-8 z-10">
-                                            {loading ? "..." : currentQuote ? `"${currentQuote.def}"` : "불러오는 중..."}
-                                        </h2>
-                                        <button onClick={() => setPage('quiz')} className="bg-white text-indigo-600 w-full py-4 rounded-2xl font-black shadow-lg btn-active z-10">트레이닝 시작</button>
+                                        <h2 className="text-2xl font-black leading-tight italic my-8 z-10">"{currentQuote.def}"</h2>
+                                        <button onClick={() => setPage('quiz')} className="bg-white text-indigo-600 w-full py-4 rounded-2xl font-black shadow-lg btn-active z-10">학습 시작</button>
                                     </div>
                                 )}
                             </div>
                         )}
 
-                        {page === 'quiz' && <QuizView q={currentQuote} onNext={() => getNextQuote(level)} onFinish={saveResult} speak={speak} onHome={() => setPage('dashboard')} />}
+                        {page === 'quiz' && (
+                            <QuizView 
+                                q={currentQuote} 
+                                onNext={() => getNextQuote(level)} 
+                                onFinish={(q, s) => {
+                                    const h = [{ date: new Date().toLocaleDateString(), quote: q.ex, def: q.def, score: s }, ...history].slice(0, 50);
+                                    setHistory(h);
+                                    localStorage.setItem(`wisdomHistory_${user}`, JSON.stringify(h));
+                                }} 
+                                speak={speak} 
+                                onHome={() => setPage('dashboard')} 
+                            />
+                        )}
+                        
                         {page === 'history' && <HistoryView history={history} user={user} speak={speak} />}
+
+                        {page === 'db_manager' && (
+                            <div className="space-y-6 animate-fade">
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-xl font-black">Database 현황</h2>
+                                    <button onClick={clearPool} className="text-[10px] font-bold text-red-400 border border-red-100 px-3 py-1 rounded-lg">DB 초기화</button>
+                                </div>
+                                {['Easy', 'Medium', 'Hard'].map(l => (
+                                    <div key={l} className="bg-white p-5 rounded-3xl border shadow-sm">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <span className="font-black text-indigo-600">{l} Pool</span>
+                                            <span className="text-xs font-bold text-slate-400">{pool[l]?.length || 0}개 저장됨</span>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {(pool[l] || []).map((q, idx) => (
+                                                <div key={idx} className="text-[11px] p-3 bg-slate-50 rounded-xl text-slate-500 leading-tight">
+                                                    <strong>Q.</strong> {q.def}<br/>
+                                                    <span className="opacity-60">A. {q.ex}</span>
+                                                </div>
+                                            ))}
+                                            {(!pool[l] || pool[l].length === 0) && <p className="text-center py-4 text-xs text-slate-300">데이터를 불러오는 중입니다...</p>}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </main>
                     <IconUpdate />
                 </div>
             );
         }
 
+        // --- 퀴즈 및 히스토리 컴포넌트 ---
         function QuizView({ q, onNext, onFinish, speak, onHome }) {
             const [input, setInput] = useState('');
             const [checked, setChecked] = useState(false);
             const [result, setResult] = useState([]);
-            const [showHint, setShowHint] = useState(false);
+            const shuffledWords = useMemo(() => q?.ex.replace(/[.,!;?]/g, "").split(" ").sort(() => Math.random() - 0.5) || [], [q]);
 
             const check = () => {
                 const target = q.ex.trim().split(/\s+/);
                 const userWords = input.trim().split(/\s+/);
                 const diff = userWords.map((w, i) => ({ w, ok: w.toLowerCase().replace(/[.,!?]/g, "") === target[i]?.toLowerCase().replace(/[.,!?]/g, "") }));
-                const score = `${Math.round((diff.filter(x => x.ok).length / target.length) * 100)}점`;
-                setResult(diff); setChecked(true); onFinish(q, score); speak(q.ex);
+                onFinish(q, `${Math.round((diff.filter(x => x.ok).length / target.length) * 100)}점`);
+                setResult(diff); setChecked(true); speak(q.ex);
             };
-
-            const shuffledWords = useMemo(() => q?.ex.replace(/[.,!;?]/g, "").split(" ").sort(() => Math.random() - 0.5) || [], [q]);
 
             return (
                 <div className="bg-white p-7 rounded-[3rem] border shadow-sm animate-fade">
                     <div className="flex justify-between items-center mb-6">
                         <button onClick={onHome} className="text-slate-400"><i data-lucide="chevron-left"></i></button>
-                        <button onClick={() => setShowHint(!showHint)} className="text-xs font-black text-indigo-400 flex items-center gap-1">
-                            <i data-lucide="help-circle" size="14"></i> 힌트 보기
-                        </button>
+                        <span className="text-xs font-black text-indigo-400">Word Training</span>
                     </div>
-                    <h3 className="text-xl font-black mb-6 italic text-slate-800 leading-tight">"{q.def}"</h3>
-                    
-                    {showHint && (
-                        <div className="mb-6 p-4 bg-slate-50 rounded-2xl flex flex-wrap gap-2 animate-fade">
-                            {shuffledWords.map((w, i) => <span key={i} className="text-[10px] font-bold bg-white px-2 py-1 rounded-lg border border-slate-100 text-slate-400 uppercase tracking-tighter">{w}</span>)}
-                        </div>
-                    )}
-
-                    <textarea value={input} onChange={e => setInput(e.target.value)} className="w-full h-36 p-5 bg-slate-50 rounded-[2rem] mb-4 outline-none text-lg font-medium resize-none border-2 border-transparent focus:border-indigo-100 transition-all" placeholder="영작을 시도하세요..." />
-                    
+                    <h3 className="text-xl font-black mb-6 italic text-slate-800">"{q.def}"</h3>
+                    <div className="mb-6 p-4 bg-slate-50 rounded-2xl flex flex-wrap gap-2">
+                        {shuffledWords.map((w, i) => <span key={i} className="text-[10px] font-bold bg-white px-2 py-1 rounded-lg border border-slate-100 text-slate-400 uppercase">{w}</span>)}
+                    </div>
+                    <textarea value={input} onChange={e => setInput(e.target.value)} className="w-full h-36 p-5 bg-slate-50 rounded-[2rem] mb-4 outline-none text-lg font-medium resize-none border-2 border-transparent focus:border-indigo-100 transition-all" placeholder="영작 입력..." />
                     {!checked ? (
                         <button onClick={check} className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black shadow-lg btn-active">정답 확인</button>
                     ) : (
@@ -249,10 +269,10 @@
                                 {result.map((item, i) => <span key={i} className={item.ok ? "text-emerald-500 font-bold" : "text-red-500 font-bold underline"}>{item.w}</span>)}
                             </div>
                             <div className="p-5 bg-indigo-50 rounded-[2rem] flex justify-between items-center">
-                                <p className="text-indigo-900 font-bold text-sm leading-snug">{q.ex}</p>
+                                <p className="text-indigo-900 font-bold text-sm">{q.ex}</p>
                                 <button onClick={() => speak(q.ex)} className="text-indigo-600 p-2"><i data-lucide="volume-2"></i></button>
                             </div>
-                            <button onClick={() => {setChecked(false); setInput(''); setShowHint(false); onNext()}} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black btn-active">다음 문장으로</button>
+                            <button onClick={() => {setChecked(false); setInput(''); onNext()}} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black btn-active">다음 문장</button>
                         </div>
                     )}
                 </div>
@@ -262,17 +282,14 @@
         function HistoryView({ history, user, speak }) {
             return (
                 <div className="space-y-4 animate-fade">
-                    <h2 className="text-2xl font-black mb-6 flex items-center gap-2 px-2"><i data-lucide="archive"></i> {user}'s Records</h2>
-                    {history.length === 0 ? <p className="text-center py-20 text-slate-300 font-bold">기록이 없습니다.</p> :
-                    history.map((h, i) => (
+                    <h2 className="text-2xl font-black mb-6 flex items-center gap-2 px-2"><i data-lucide="archive"></i> Records</h2>
+                    {history.map((h, i) => (
                         <div key={i} className="bg-white p-5 rounded-[2rem] border flex justify-between items-center shadow-sm">
                             <div className="flex-1 pr-4">
-                                <p className="text-[10px] text-slate-300 font-black uppercase mb-1">{h.date} • {h.score}</p>
+                                <p className="text-[10px] text-slate-300 font-black mb-1">{h.date} • {h.score}</p>
                                 <p className="text-sm font-bold text-slate-800 leading-snug">"{h.def}"</p>
                             </div>
-                            <button onClick={() => speak(h.quote)} className="p-3 text-indigo-400 bg-indigo-50 rounded-2xl hover:bg-indigo-100 transition-colors">
-                                <i data-lucide="volume-2" size="20"></i>
-                            </button>
+                            <button onClick={() => speak(h.quote)} className="p-3 text-indigo-400 bg-indigo-50 rounded-2xl hover:bg-indigo-100 transition-colors"><i data-lucide="volume-2" size="20"></i></button>
                         </div>
                     ))}
                 </div>
