@@ -3,231 +3,180 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>English Master Pro</title>
+    <title>AI English Tutor</title>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
-        body { font-family: 'Pretendard', sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { font-family: 'Pretendard', sans-serif; -webkit-tap-highlight-color: transparent; background-color: #f8fafc; }
         .diff-red { color: #ef4444; font-weight: bold; text-decoration: underline; }
         .diff-green { color: #10b981; font-weight: bold; }
     </style>
 </head>
-<body class="bg-slate-50">
+<body>
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect } = React;
 
+        // --- AI가 제안할 기본 단어 데이터베이스 (예시 10개, 실제로는 더 많이 확장 가능) ---
+        const AI_VOCAB_DB = [
+            { word: "Cunning", def: "교활한, 영리한", ex: "The fox used a cunning trick to escape." },
+            { word: "Abundant", def: "풍부한", ex: "The area is abundant in natural resources." },
+            { word: "Meticulous", def: "세심한, 꼼꼼한", ex: "He is meticulous about his work." },
+            { word: "Diminish", def: "줄어들다", ex: "The pain will gradually diminish." },
+            { word: "Adversary", def: "상대방, 적", ex: "He defeated his old adversary in the match." },
+            { word: "Destination", def: "목적지", ex: "We arrived at our destination at sunset." },
+            { word: "Ignite", def: "불을 붙이다", ex: "The spark ignited the dry wood." },
+            { word: "Eloquent", def: "유창한, 웅변의", ex: "The president gave an eloquent speech." },
+            { word: "Reluctant", def: "꺼리는", ex: "He was reluctant to admit his mistake." },
+            { word: "Versatile", def: "다재다능한", ex: "Eggs are a versatile ingredient in cooking." }
+        ];
+
         function App() {
             const [page, setPage] = useState('dashboard');
             const [menuOpen, setMenuOpen] = useState(false);
-            const [vocab, setVocab] = useState([]);
-            const [settings, setSettings] = useState({ wordGoal: 20, writeGoal: 3 });
+            const [currentWord, setCurrentWord] = useState(AI_VOCAB_DB[0]);
             const [progress, setProgress] = useState({ wordsDone: 0, writesDone: 0 });
+            const [settings, setSettings] = useState({ wordGoal: 10, writeGoal: 3 });
 
-            useEffect(() => {
-                const savedVocab = localStorage.getItem('myVocab');
-                const savedSettings = localStorage.getItem('mySettings');
-                const savedProgress = localStorage.getItem('myProgress');
-                if (savedVocab) setVocab(JSON.parse(savedVocab));
-                if (savedSettings) setSettings(JSON.parse(savedSettings));
-                if (savedProgress) setProgress(JSON.parse(savedProgress));
-            }, []);
-
-            const updateProgress = (newProgress) => {
-                setProgress(newProgress);
-                localStorage.setItem('myProgress', JSON.stringify(newProgress));
+            // 음성 읽기 기능 (TTS)
+            const speak = (text) => {
+                window.speechSynthesis.cancel(); // 이전 음성 중단
+                const speech = new SpeechSynthesisUtterance(text);
+                speech.lang = 'en-US';
+                speech.rate = 0.9; // 약간 천천히
+                window.speechSynthesis.speak(speech);
             };
 
-            const handleFileUpload = (e) => {
-                const file = e.target.files[0];
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    const bstr = evt.target.result;
-                    const wb = XLSX.read(bstr, { type: 'binary' });
-                    const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
-                    const parsedData = data.slice(1).map(row => ({ word: row[0], def: row[1], ex: row[2] })).filter(i => i.word);
-                    setVocab(parsedData);
-                    localStorage.setItem('myVocab', JSON.stringify(parsedData));
-                    setPage('study');
-                };
-                reader.readAsBinaryString(file);
+            // AI 단어 랜덤 제안 로직
+            const getNextAIWord = () => {
+                const randomIndex = Math.floor(Math.random() * AI_VOCAB_DB.length);
+                setCurrentWord(AI_VOCAB_DB[randomIndex]);
+                setProgress(prev => ({...prev, wordsDone: prev.wordsDone + 1}));
             };
 
             return (
                 <div className="min-h-screen pb-10">
                     <header className="flex justify-between items-center p-5 bg-white shadow-sm sticky top-0 z-50">
-                        <h1 className="text-xl font-bold text-indigo-600">English Master</h1>
-                        <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 border rounded-xl shadow-sm"><i data-lucide={menuOpen ? "x" : "menu"}></i></button>
+                        <h1 className="text-xl font-bold text-indigo-600">AI Tutor</h1>
+                        <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 border rounded-xl"><i data-lucide="menu"></i></button>
                     </header>
 
                     {menuOpen && (
                         <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setMenuOpen(false)}>
-                            <div className="absolute right-4 top-16 w-56 bg-white rounded-3xl p-6 shadow-2xl space-y-5" onClick={e => e.stopPropagation()}>
-                                <div onClick={() => {setPage('dashboard'); setMenuOpen(false)}} className="flex items-center gap-4 font-bold cursor-pointer"><i data-lucide="layout"></i> 홈</div>
-                                <div onClick={() => {setPage('settings'); setMenuOpen(false)}} className="flex items-center gap-4 font-bold cursor-pointer"><i data-lucide="settings"></i> 목표 설정</div>
-                                <div onClick={() => {setPage('upload'); setMenuOpen(false)}} className="flex items-center gap-4 font-bold cursor-pointer"><i data-lucide="file-up"></i> 엑셀 업로드</div>
-                                <div onClick={() => {setPage('study'); setMenuOpen(false)}} className="flex items-center gap-4 font-bold cursor-pointer"><i data-lucide="book-open"></i> 단어 학습</div>
-                                <div onClick={() => {setPage('writing'); setMenuOpen(false)}} className="flex items-center gap-4 font-bold cursor-pointer"><i data-lucide="pen-tool"></i> 작문 및 첨삭</div>
+                            <div className="absolute right-4 top-16 w-56 bg-white rounded-3xl p-6 shadow-2xl space-y-4" onClick={e => e.stopPropagation()}>
+                                <div onClick={() => {setPage('dashboard'); setMenuOpen(false)}} className="flex items-center gap-3 font-bold"><i data-lucide="layout"></i> 홈</div>
+                                <div onClick={() => {setPage('study'); setMenuOpen(false)}} className="flex items-center gap-3 font-bold"><i data-lucide="sparkles"></i> AI 단어 추천</div>
+                                <div onClick={() => {setPage('quiz'); setMenuOpen(false)}} className="flex items-center gap-3 font-bold"><i data-lucide="pencil"></i> 영작 퀴즈</div>
                             </div>
                         </div>
                     )}
 
                     <main className="p-5 max-w-md mx-auto">
-                        {page === 'dashboard' && <DashboardView settings={settings} progress={progress} />}
-                        {page === 'settings' && <SettingsView settings={settings} setSettings={(s) => {setSettings(s); localStorage.setItem('mySettings', JSON.stringify(s));}} />}
-                        {page === 'upload' && <UploadView handleFileUpload={handleFileUpload} />}
-                        {page === 'study' && <StudyView vocab={vocab} progress={progress} updateProgress={updateProgress} />}
-                        {page === 'writing' && <WritingView progress={progress} updateProgress={updateProgress} />}
+                        {page === 'dashboard' && <Dashboard progress={progress} settings={settings} />}
+                        {page === 'study' && (
+                            <div className="space-y-6 text-center animate-in fade-in zoom-in duration-300">
+                                <div className="bg-white p-10 rounded-[3rem] shadow-xl border-2 border-indigo-50 relative overflow-hidden">
+                                    <button onClick={() => speak(currentWord.word)} className="absolute top-6 right-6 p-3 bg-indigo-50 text-indigo-600 rounded-full active:scale-90 transition">
+                                        <i data-lucide="volume-2"></i>
+                                    </button>
+                                    <p className="text-sm font-bold text-indigo-400 mb-2 uppercase tracking-widest">AI 추천 단어</p>
+                                    <h2 className="text-4xl font-black text-slate-800 mb-4">{currentWord.word}</h2>
+                                    <p className="text-xl font-medium text-slate-600 mb-6">{currentWord.def}</p>
+                                    <div className="p-4 bg-slate-50 rounded-2xl italic text-slate-500 text-sm leading-relaxed">
+                                        "{currentWord.ex}"
+                                        <button onClick={() => speak(currentWord.ex)} className="ml-2 inline-block align-middle text-indigo-400"><i data-lucide="play" size="14"></i></button>
+                                    </div>
+                                </div>
+                                <button onClick={getNextAIWord} className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-bold text-lg shadow-lg shadow-indigo-100 active:scale-95 transition">
+                                    다음 AI 추천 단어 보기
+                                </button>
+                            </div>
+                        )}
+                        {page === 'quiz' && <QuizView currentWord={currentWord} getNextAIWord={getNextAIWord} setProgress={setProgress} speak={speak} />}
                     </main>
                     <IconUpdate />
                 </div>
             );
         }
 
-        // --- 기능별 컴포넌트 ---
-
-        function DashboardView({ settings, progress }) {
-            const wordRate = Math.min(100, (progress.wordsDone / settings.wordGoal) * 100);
-            const writeRate = Math.min(100, (progress.writesDone / settings.writeGoal) * 100);
-            const totalRate = Math.round((wordRate + writeRate) / 2);
+        // --- 대시보드 컴포넌트 ---
+        function Dashboard({ progress, settings }) {
+            const rate = Math.min(100, Math.round(((progress.wordsDone / settings.wordGoal) * 100)));
             return (
-                <div className="space-y-6 animate-in fade-in duration-500">
+                <div className="space-y-6">
                     <div className="bg-indigo-600 p-8 rounded-[2.5rem] text-white shadow-xl">
-                        <p className="opacity-80">오늘의 달성도</p>
-                        <h2 className="text-5xl font-black mt-2">{totalRate}%</h2>
+                        <p className="opacity-80 font-medium">오늘의 AI 학습 달성도</p>
+                        <h2 className="text-6xl font-black mt-2">{rate}%</h2>
                         <div className="w-full bg-white/20 h-3 rounded-full mt-6 overflow-hidden">
-                            <div className="bg-white h-3 rounded-full transition-all duration-1000" style={{width: `${totalRate}%`}}></div>
+                            <div className="bg-white h-full transition-all duration-1000" style={{width: `${rate}%`}}></div>
                         </div>
+                    </div>
+                    <div className="bg-white p-6 rounded-3xl border text-center">
+                        <p className="text-slate-400 text-sm font-bold mb-1">학습한 단어 수</p>
+                        <p className="text-3xl font-black text-slate-800">{progress.wordsDone} <span className="text-lg text-slate-300">/ {settings.wordGoal}</span></p>
                     </div>
                 </div>
             );
         }
 
-        function UploadView({ handleFileUpload }) {
-            return (
-                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border text-center animate-in zoom-in-95 duration-300">
-                    <i data-lucide="file-spreadsheet" size="40" className="mx-auto mb-4 text-indigo-600"></i>
-                    <h2 className="text-xl font-bold mb-4">엑셀 파일 업로드</h2>
-                    <label className="block w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold cursor-pointer shadow-lg shadow-indigo-100 active:scale-95 transition">
-                        파일 선택
-                        <input type="file" accept=".xlsx, .xls, .csv" onChange={handleFileUpload} className="hidden" />
-                    </label>
-                </div>
-            );
-        }
-
-        function WritingView({ progress, updateProgress }) {
-            const [text, setText] = useState('');
-            const [loading, setLoading] = useState(false);
+        // --- 퀴즈 및 실시간 번역/첨삭 컴포넌트 ---
+        function QuizView({ currentWord, getNextAIWord, setProgress, speak }) {
+            const [input, setInput] = useState('');
             const [result, setResult] = useState(null);
+            const [translated, setTranslated] = useState('');
 
-            const handleAnalyze = async () => {
-                if (!text.trim()) return;
-                setLoading(true);
+            const handleCheck = async () => {
+                // 1. 실제 구글 번역 호출
                 try {
-                    // 1. 실제 구글 번역 API 호출 (무료 엔드포인트 사용)
-                    const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(text)}`);
+                    const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(input)}`);
                     const data = await res.json();
-                    const translatedText = data[0].map(item => item[0]).join('');
+                    setTranslated(data[0][0][0]);
+                } catch(e) { setTranslated("번역 오류 발생"); }
 
-                    // 2. 단어별 비교 분석 (사용자가 자주 틀리는 패턴 기반 시뮬레이션)
-                    // 실제 AI 첨삭 엔진이 없는 클라이언트 환경이므로, 패턴 매칭으로 틀린 단어를 찾아냅니다.
-                    const words = text.split(' ');
-                    const diffElements = words.map((word, idx) => {
-                        let isError = false;
-                        let correctedWord = word;
+                // 2. 단어별 일치 여부 분석
+                const userWords = input.trim().split(/\s+/);
+                const targetWords = currentWord.ex.trim().split(/\s+/);
+                const diff = userWords.map((word, i) => ({
+                    word,
+                    isCorrect: word.toLowerCase().replace(/[.,!?]/g, "") === targetWords[i]?.toLowerCase().replace(/[.,!?]/g, "")
+                }));
 
-                        // 간단한 문법 교정 규칙 (예: I is -> I am, She go -> She goes)
-                        if (word.toLowerCase() === 'is' && (words[idx-1]?.toLowerCase() === 'i')) { isError = true; correctedWord = 'am'; }
-                        if (word.toLowerCase() === 'am' && (['he','she','it'].includes(words[idx-1]?.toLowerCase()))) { isError = true; correctedWord = 'is'; }
-                        if (word.toLowerCase() === 'go' && (['he','she','it'].includes(words[idx-1]?.toLowerCase()))) { isError = true; correctedWord = 'goes'; }
-
-                        return { original: word, corrected: correctedWord, isError };
-                    });
-
-                    const hasError = diffElements.some(e => e.isError);
-                    const correctedSentence = diffElements.map(e => e.corrected).join(' ');
-
-                    setResult({ diffElements, translatedText, hasError, correctedSentence });
-                    updateProgress({...progress, writesDone: progress.writesDone + 1});
-                } catch (err) {
-                    alert('번역 중 오류가 발생했습니다.');
-                }
-                setLoading(false);
+                setResult(diff);
+                setProgress(prev => ({...prev, writesDone: prev.writesDone + 1}));
             };
 
             return (
-                <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-500">
+                <div className="space-y-4">
                     <div className="bg-white p-6 rounded-[2rem] border shadow-sm">
-                        <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><i data-lucide="pen-tool" size="18"></i> AI 작문 분석</h2>
-                        <textarea className="w-full h-32 p-4 bg-slate-50 border-none rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500" 
-                            placeholder="영작을 입력하세요 (예: I is a student)" value={text} onChange={(e) => setText(e.target.value)} />
-                        <button onClick={handleAnalyze} disabled={loading} className="w-full mt-4 bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg disabled:bg-slate-300">
-                            {loading ? "분석 중..." : "번역 및 분석 완료"}
-                        </button>
+                        <h3 className="font-bold text-slate-400 text-sm mb-2 uppercase tracking-tighter">아래 문장을 영작하세요</h3>
+                        <p className="text-xl font-bold text-slate-800 mb-4 italic">" {currentWord.def}와 관련된 예문: {currentWord.ex} "</p>
+                        <textarea className="w-full h-32 p-4 bg-slate-50 border-none rounded-2xl outline-none text-lg" 
+                            placeholder="이곳에 영작... (단어: ${currentWord.word} 사용)" value={input} onChange={(e) => setInput(e.target.value)} />
+                        <button onClick={handleCheck} className="w-full mt-4 bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg">제출 및 AI 분석</button>
                     </div>
 
                     {result && (
-                        <div className="bg-white p-6 rounded-[2.5rem] border shadow-xl space-y-6 overflow-hidden">
-                            {/* 1. 단어별 분석 영역 */}
+                        <div className="bg-white p-6 rounded-[2.5rem] border shadow-xl space-y-4 animate-in slide-in-from-bottom-4">
                             <div>
-                                <h4 className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest">나의 문장 분석</h4>
-                                <div className="text-lg flex flex-wrap gap-1 leading-relaxed">
-                                    {result.diffElements.map((el, i) => (
-                                        <span key={i} className={el.isError ? "diff-red" : "text-slate-800"}>{el.original} </span>
+                                <h4 className="text-xs font-bold text-slate-400 mb-2">분석 결과 (빨간색: 틀림)</h4>
+                                <div className="text-lg flex flex-wrap gap-x-2">
+                                    {result.map((item, i) => (
+                                        <span key={i} className={item.isCorrect ? "text-emerald-500 font-bold" : "diff-red"}>{item.word}</span>
                                     ))}
                                 </div>
                             </div>
-
-                            {/* 2. 교정 제안 (틀린 게 있을 때만 표시) */}
-                            {result.hasError && (
-                                <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
-                                    <h4 className="text-xs font-bold text-emerald-600 mb-1">올바른 제안</h4>
-                                    <p className="text-emerald-800 font-bold">{result.correctedSentence}</p>
-                                </div>
-                            )}
-
-                            {/* 3. 실제 번역 결과 */}
                             <div className="pt-4 border-t">
-                                <h4 className="text-xs font-bold text-indigo-400 mb-2 uppercase tracking-widest">실제 한국어 번역</h4>
-                                <div className="p-4 bg-indigo-50 rounded-2xl text-slate-700 font-medium leading-relaxed">
-                                    {result.translatedText}
-                                </div>
+                                <h4 className="text-xs font-bold text-indigo-400 mb-1 tracking-widest">내가 쓴 문장 해석</h4>
+                                <p className="text-slate-700 bg-indigo-50 p-3 rounded-xl font-medium">{translated}</p>
                             </div>
+                            <button onClick={() => {setResult(null); setInput(''); getNextAIWord();}} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold">다음 문제로 넘어가기</button>
                         </div>
                     )}
-                </div>
-            );
-        }
-
-        // --- 기타 공통 컴포넌트 ---
-        function SettingsView({ settings, setSettings }) {
-            return (
-                <div className="bg-white p-8 rounded-[2rem] shadow-sm border space-y-6">
-                    <h2 className="text-xl font-bold">🎯 목표 설정</h2>
-                    <div><label className="text-sm font-bold block mb-2">단어 ({settings.wordGoal}개)</label><input type="range" min="5" max="100" step="5" value={settings.wordGoal} onChange={(e) => setSettings({...settings, wordGoal: parseInt(e.target.value)})} className="w-full accent-indigo-600" /></div>
-                    <div><label className="text-sm font-bold block mb-2">작문 ({settings.writeGoal}회)</label><input type="range" min="1" max="10" step="1" value={settings.writeGoal} onChange={(e) => setSettings({...settings, writeGoal: parseInt(e.target.value)})} className="w-full accent-indigo-600" /></div>
-                </div>
-            );
-        }
-
-        function StudyView({ vocab, progress, updateProgress }) {
-            const [idx, setIdx] = useState(0);
-            const [flipped, setFlipped] = useState(false);
-            if (vocab.length === 0) return <div className="text-center py-20 text-slate-400 font-bold">엑셀 파일을 업로드하세요!</div>;
-            return (
-                <div className="flex flex-col items-center animate-in fade-in duration-500">
-                    <div onClick={() => setFlipped(!flipped)} className={`w-full aspect-square flex flex-col items-center justify-center p-8 rounded-[3rem] shadow-2xl transition-all duration-500 ${flipped ? 'bg-indigo-600 text-white rotate-y-180' : 'bg-white border-2 border-slate-100'}`}>
-                        <h3 className="text-3xl font-black text-center leading-tight">{flipped ? vocab[idx].def : vocab[idx].word}</h3>
-                        {flipped && <p className="mt-6 text-indigo-100 italic text-center text-sm px-4">{vocab[idx].ex}</p>}
-                    </div>
-                    <button onClick={() => {if(idx < vocab.length-1){setIdx(idx+1); setFlipped(false); updateProgress({...progress, wordsDone: progress.wordsDone+1})}}} className="mt-10 bg-slate-900 text-white px-12 py-4 rounded-2xl font-bold shadow-lg active:scale-95 transition">다음 단어</button>
                 </div>
             );
         }
