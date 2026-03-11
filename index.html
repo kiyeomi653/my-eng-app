@@ -27,7 +27,6 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-        // 키 이름을 고정하여 코드 수정 시에도 데이터가 유지되도록 함
         const POOL_KEY = 'Writing_Permanent_Pool_Storage';
         const USER_DB_KEY = 'Writing_Permanent_User_Registry';
         const CATS = { Daily: "일상 대화", Wisdom: "명언과 격언", Cinema: "영화 대사" };
@@ -135,7 +134,6 @@
                 } finally { setLoadingState(p => ({ ...p, [cat]: false })); }
             };
 
-            // 초기화 함수들
             const resetCategory = (cat) => {
                 if(prompt("비밀번호를 입력하세요.") === "1234") {
                     setPool(p => ({ ...p, [cat]: [] }));
@@ -194,16 +192,25 @@
                             <div className="space-y-6 animate-fade">
                                 <div className="grid gap-3">
                                     {Object.keys(CATS).map(c => (
-                                        <button key={c} onClick={()=>{setCategory(c); 
-                                            if(pool[c]?.length > 0) { setCurrentQuote(pool[c][0]); setPool(p=>({...p, [c]:p[c].slice(1)})); fillSpecificPool(c); }
-                                            else { alert("충전 중..."); fillSpecificPool(c); }
+                                        <button key={c} onClick={()=>{
+                                            setCategory(c); 
+                                            // 카테고리를 바꿔도 즉시 문장을 소모(setCurrentQuote)하지 않음
+                                            if(!currentQuote && pool[c]?.length > 0) {
+                                                setCurrentQuote(pool[c][0]);
+                                                setPool(p=>({...p, [c]:p[c].slice(1)}));
+                                            }
                                         }} className={`py-5 px-8 rounded-2xl font-black transition-all btn-active border-2 ${category===c?'bg-indigo-600 border-indigo-600 text-white shadow-lg':'bg-white border-slate-50 text-slate-500'}`}>{CATS[c]}</button>
                                     ))}
                                 </div>
-                                {category && currentQuote && (
+                                {category && (
                                     <div className="bg-indigo-600 p-8 rounded-[3rem] text-white shadow-xl animate-fade">
-                                        <h2 className="text-2xl font-black leading-tight italic mb-8">"{currentQuote.def}"</h2>
-                                        <button onClick={()=>setPage('quiz')} className="bg-white text-indigo-600 w-full py-4 rounded-2xl font-black shadow-lg btn-active">훈련 시작</button>
+                                        <h2 className="text-2xl font-black leading-tight italic mb-8">
+                                            {currentQuote ? `"${currentQuote.def}"` : "문장을 불러오는 중..."}
+                                        </h2>
+                                        <button onClick={()=>{
+                                            if(currentQuote) setPage('quiz');
+                                            else alert("잠시만 기다려주세요.");
+                                        }} className="bg-white text-indigo-600 w-full py-4 rounded-2xl font-black shadow-lg btn-active">훈련 시작</button>
                                     </div>
                                 )}
                             </div>
@@ -211,8 +218,14 @@
 
                         {page === 'quiz' && (
                             <QuizView q={currentQuote} onNext={()=>{
-                                if(pool[category]?.length > 0) { setCurrentQuote(pool[category][0]); setPool(p=>({...p, [category]:p[category].slice(1)})); fillSpecificPool(category); }
-                                else { setPage('dashboard'); }
+                                if(pool[category]?.length > 0) {
+                                    setCurrentQuote(pool[category][0]);
+                                    setPool(p=>({...p, [category]:p[category].slice(1)}));
+                                    fillSpecificPool(category);
+                                } else {
+                                    setCurrentQuote(null);
+                                    setPage('dashboard');
+                                }
                             }} onFinish={(q,s)=>{
                                 const h = [{date:new Date().toLocaleDateString(), quote:q.ex, def:q.def, score:s}, ...history].slice(0,50);
                                 setHistory(h); localStorage.setItem(`writingHistory_${user}`, JSON.stringify(h));
@@ -228,7 +241,6 @@
                                         <button onClick={()=>speak(h.quote)} className="p-3 text-indigo-400 bg-indigo-50 rounded-2xl"><i data-lucide="volume-2" size="20"></i></button>
                                     </div>
                                 ))}
-                                {history.length === 0 && <div className="text-center p-20 text-slate-300 font-bold">기록이 없습니다.</div>}
                             </div>
                         )}
 
