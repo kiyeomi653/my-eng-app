@@ -15,8 +15,6 @@
         .animate-fade { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         .btn-active:active { transform: scale(0.95); }
-        .tooltip-box { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #1e293b; color: white; padding: 4px 8px; border-radius: 8px; font-size: 10px; white-space: nowrap; z-index: 100; margin-bottom: 5px; }
-        .tooltip-box::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #1e293b; }
     </style>
 </head>
 <body>
@@ -36,7 +34,6 @@
             { ref: "Matthew 6:33", niv: "But seek first his kingdom and his righteousness, and all these things will be given to you as well.", krv: "그런즉 너희는 먼저 그의 나라와 그의 의를 구하라 그리하면 이 모든 것을 너희에게 더하시리라" }
         ];
 
-        // 샘플 단어 원천 데이터
         const RAW_VOCABS = [
             { en: "Consistent", ko: "일관된", ex: "He is consistent in his hard work.", exKo: "그는 성실함에 있어 일관적이다." },
             { en: "Inspiration", ko: "영감", ex: "Nature is a great source of inspiration.", exKo: "자연은 영감의 아주 훌륭한 원천이다." },
@@ -55,75 +52,117 @@
             const [currentQuote, setCurrentQuote] = useState(null);
             const [history, setHistory] = useState(JSON.parse(localStorage.getItem(`writingHistory_${user}`)) || []);
             const [pool, setPool] = useState(() => JSON.parse(localStorage.getItem(POOL_KEY)) || { Daily: [], Wisdom: [], Cinema: [] });
-            
+            const [userRegistry, setUserRegistry] = useState(() => JSON.parse(localStorage.getItem(USER_DB_KEY)) || []);
+            const [loadingState, setLoadingState] = useState({ Daily: false, Wisdom: false, Cinema: false });
+
             // --- 단어/설정 관련 상태 ---
             const [settings, setSettings] = useState(() => JSON.parse(localStorage.getItem(SETTINGS_KEY)) || { newCardLimit: 5 });
             const [vocabDB, setVocabDB] = useState(() => JSON.parse(localStorage.getItem(VOCAB_DB_KEY)) || []);
             const [vocabCard, setVocabCard] = useState(null);
             const [showVocabAns, setShowVocabAns] = useState(false);
-            const [todayCount, setTodayCount] = useState(0); // 오늘 학습한 새 단어 수
+            const [todayCount, setTodayCount] = useState(0); 
 
             useEffect(() => { localStorage.setItem(POOL_KEY, JSON.stringify(pool)); }, [pool]);
             useEffect(() => { localStorage.setItem(VOCAB_DB_KEY, JSON.stringify(vocabDB)); }, [vocabDB]);
             useEffect(() => { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
+            useEffect(() => { localStorage.setItem(USER_DB_KEY, JSON.stringify(userRegistry)); }, [userRegistry]);
 
             const getNextVocab = () => {
                 const now = new Date().getTime();
-                
-                // 1. 복습할 단어가 있는지 확인 (복습 예정일이 지났고 학습 이력이 있는 것)
                 const reviewQueue = vocabDB.filter(v => v.nextReview && v.nextReview <= now);
                 
                 if (reviewQueue.length > 0) {
                     setVocabCard(reviewQueue[0]);
                 } 
-                // 2. 새 단어 학습 (오늘 제한량 확인)
                 else if (todayCount < settings.newCardLimit) {
-                    // DB에 없는 새로운 단어 추출
                     const learnedEn = vocabDB.map(v => v.en);
                     const newCandidate = RAW_VOCABS.find(v => !learnedEn.includes(v.en));
-                    
                     if (newCandidate) {
                         setVocabCard({ ...newCandidate, interval: 0, easiness: 2.5, repetitions: 0, mode: Math.random() > 0.5 ? 'en-to-ko' : 'ko-to-en' });
-                    } else {
-                        setVocabCard(null); // 더 이상 학습할 단어 없음
-                    }
-                } else {
-                    setVocabCard(null); // 오늘 목표 달성
-                }
+                    } else { setVocabCard(null); }
+                } else { setVocabCard(null); }
                 setShowVocabAns(false);
             };
 
             const handleAnkiChoice = (quality) => {
-                // quality: 0(모름), 1(헷갈림), 2(안다), 3(매우쉽다)
                 let { interval, easiness, repetitions } = vocabCard;
-
-                if (quality >= 2) { // 맞춘 경우
+                if (quality >= 2) {
                     if (repetitions === 0) interval = 1;
                     else if (repetitions === 1) interval = 6;
                     else interval = Math.round(interval * easiness);
                     repetitions++;
-                } else { // 틀리거나 헷갈린 경우
+                } else {
                     repetitions = 0;
                     interval = 1;
                 }
-
-                // 난이도 조절 (Anki 알고리즘 변형)
                 easiness = easiness + (0.1 - (3 - quality) * (0.08 + (3 - quality) * 0.02));
                 if (easiness < 1.3) easiness = 1.3;
-
                 const nextReview = new Date().getTime() + (interval * 24 * 60 * 60 * 1000);
-                
                 const updatedCard = { ...vocabCard, interval, easiness, repetitions, nextReview };
-                
-                // DB 업데이트
                 setVocabDB(prev => {
                     const filtered = prev.filter(v => v.en !== vocabCard.en);
                     return [...filtered, updatedCard];
                 });
-
                 if (vocabCard.repetitions === 0) setTodayCount(prev => prev + 1);
                 getNextVocab();
             };
+
+            const generateAIDaily = async () => {
+                const templates = [
+                    { q: "How are you doing today?", a: "오늘 하루 어떻게 지내고 있니?" },
+                    { q: "What time shall we meet?", a: "우리 몇 시에 만날까?" },
+                    { q: "I'm going to the library now.", a: "나는 지금 도서관에 가는 길이야." },
+                    { q: "That sounds like a great idea.", a: "그거 정말 좋은 생각인 것 같아." },
+                    { q: "I need to buy some milk.", a: "우유를 좀 사야 해." }
+                ];
+                const selected = templates.sort(() => 0.5 - Math.random()).slice(0, 5);
+                const results = selected.map(t => ({ def: t.a, ex: t.q, id: Date.now() + Math.random() }));
+                setPool(p => ({ ...p, Daily: [...(p.Daily || []), ...results].slice(0, 25) }));
+            };
+
+            const fillSpecificPool = async (cat) => {
+                if (loadingState[cat] || (pool[cat]?.length >= 20)) return;
+                setLoadingState(p => ({ ...p, [cat]: true }));
+                if (cat === 'Daily') { await generateAIDaily(); setLoadingState(p => ({ ...p, [cat]: false })); return; }
+                const batch = Array.from({ length: 4 }, () => fetchQuoteFromAPI(cat));
+                try {
+                    const results = await Promise.all(batch);
+                    const valid = results.filter(q => q !== null);
+                    if (valid.length > 0) setPool(p => ({ ...p, [cat]: [...(p[cat] || []), ...valid].slice(0, 25) }));
+                } finally { setLoadingState(p => ({ ...p, [cat]: false })); }
+            };
+
+            const fetchQuoteFromAPI = async (cat) => {
+                const cb = Math.random().toString(36).substring(7);
+                const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(`https://zenquotes.io/api/random?cb=${cb}`)}`;
+                try {
+                    const res = await fetch(proxy);
+                    const data = await res.json();
+                    const raw = JSON.parse(data.contents)[0];
+                    if (!raw || raw.q.includes("Too many requests")) return null;
+                    const wordCount = raw.q.split(" ").length;
+                    let isMatch = false;
+                    if (cat === 'Daily') isMatch = (wordCount <= 7);
+                    else if (cat === 'Wisdom') isMatch = (wordCount >= 8);
+                    else if (cat === 'Cinema') isMatch = (wordCount >= 4 && wordCount <= 13);
+                    if (isMatch) {
+                        const tRes = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(raw.q)}`);
+                        const tData = await tRes.json();
+                        return { def: tData[0][0][0], ex: raw.q, id: Date.now()+Math.random() };
+                    }
+                } catch (e) { return null; }
+                return null;
+            };
+
+            const resetCategory = (cat) => { if(prompt("비밀번호") === "1234") { setPool(p => ({ ...p, [cat]: [] })); alert("초기화됨"); } };
+            const resetAllDB = () => { if(prompt("비밀번호") === "1234") { setPool({ Daily: [], Wisdom: [], Cinema: [] }); setUserRegistry([]); alert("초기화됨"); } };
+
+            useEffect(() => {
+                if (user) {
+                    const tick = () => Object.keys(CATS).forEach(c => { if ((pool[c]?.length || 0) < 5) fillSpecificPool(c); });
+                    tick(); const itv = setInterval(tick, 10000); return () => clearInterval(itv);
+                }
+            }, [user, pool]);
 
             const speak = (t) => { if(!t) return; window.speechSynthesis.cancel(); const s = new SpeechSynthesisUtterance(t); s.lang = 'en-US'; s.rate = 0.9; window.speechSynthesis.speak(s); };
 
@@ -151,7 +190,6 @@
                                 <div onClick={()=>{setPage('dashboard');setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="pencil"></i> 작문 학습</div>
                                 <div onClick={()=>{setPage('vocab'); getNextVocab(); setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="book-open"></i> 단어 학습</div>
                                 <div onClick={()=>{setPage('settings'); setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold text-slate-600 hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="settings"></i> 학습 설정</div>
-                                <div onClick={()=>{setPage('history');setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="award"></i> 기록</div>
                                 <hr />
                                 <div onClick={()=>{localStorage.removeItem('currentUser'); location.reload();}} className="flex items-center gap-4 p-4 font-bold text-red-400 hover:bg-red-50 rounded-2xl cursor-pointer"><i data-lucide="log-out"></i> 로그아웃</div>
                             </div>
@@ -177,35 +215,51 @@
                                 <h2 className="text-2xl font-black italic">Study Settings</h2>
                                 <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm space-y-6">
                                     <div>
-                                        <label className="block text-sm font-black text-slate-500 mb-3">하루 새 단어 학습량</label>
+                                        <label className="block text-sm font-black text-slate-500 mb-3">하루 새 단어 학습량 (5~100개)</label>
                                         <div className="flex items-center gap-4">
-                                            <input type="range" min="1" max="20" value={settings.newCardLimit} onChange={(e)=>setSettings({...settings, newCardLimit: parseInt(e.target.value)})} className="flex-1 accent-indigo-600" />
-                                            <span className="font-black text-indigo-600 text-xl w-8 text-center">{settings.newCardLimit}</span>
+                                            <input type="range" min="5" max="100" step="5" value={settings.newCardLimit} onChange={(e)=>setSettings({...settings, newCardLimit: parseInt(e.target.value)})} className="flex-1 accent-indigo-600 cursor-pointer" />
+                                            <span className="font-black text-indigo-600 text-xl w-10 text-center">{settings.newCardLimit}</span>
                                         </div>
-                                        <p className="text-[10px] text-slate-400 mt-2">* 설정한 개수만큼 새 단어를 먼저 보여준 뒤 복습이 시작됩니다.</p>
                                     </div>
                                 </div>
-                                <button onClick={()=>setPage('home')} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black shadow-lg">저장 및 나가기</button>
+                                <button onClick={()=>setPage('home')} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black shadow-lg btn-active">저장 및 나가기</button>
                             </div>
                         )}
 
+                        {/* 수정된 단어 학습 부분: 진행 바 추가 */}
                         {page === 'vocab' && (
-                            <div className="space-y-6 animate-fade text-center">
-                                <h2 className="text-2xl font-black italic">Vocab (Anki)</h2>
+                            <div className="space-y-6 animate-fade">
+                                <div className="flex justify-between items-center px-1">
+                                    <h2 className="text-2xl font-black italic">Vocab (Anki)</h2>
+                                    {vocabCard && (
+                                        <div className="text-right space-y-1">
+                                            <div className="text-[10px] font-black text-slate-400">
+                                                오늘의 새 단어 목표: <span className="text-indigo-600">{todayCount}</span> / {settings.newCardLimit}
+                                            </div>
+                                            <div className="w-28 h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200 shadow-inner">
+                                                <div 
+                                                    className="h-full bg-indigo-500 rounded-full transition-all duration-300 shadow" 
+                                                    style={{ width: `${Math.min(100, (todayCount / settings.newCardLimit) * 100)}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
                                 {vocabCard ? (
-                                    <div className="space-y-8">
+                                    <div className="space-y-8 animate-fade text-center">
                                         <div className="bg-white p-10 rounded-[3.5rem] border shadow-xl min-h-[350px] flex flex-col items-center justify-center space-y-6">
-                                            <div className="text-4xl font-black text-indigo-600">
+                                            <div className="text-4xl font-black text-indigo-600 tracking-tight">
                                                 {vocabCard.mode === 'en-to-ko' ? vocabCard.en : vocabCard.ko}
                                             </div>
                                             {showVocabAns && (
                                                 <div className="animate-fade space-y-5 w-full">
                                                     <div className="text-xl font-bold text-slate-400">{vocabCard.mode === 'en-to-ko' ? vocabCard.ko : vocabCard.en}</div>
                                                     <div className="space-y-1">
-                                                        <div className="text-sm font-medium italic text-slate-600 italic">"{vocabCard.ex}"</div>
+                                                        <div className="text-sm font-medium italic text-slate-600">"{vocabCard.ex}"</div>
                                                         <div className="text-[11px] font-bold text-indigo-400">{vocabCard.exKo}</div>
                                                     </div>
-                                                    <button onClick={()=>speak(vocabCard.en)} className="p-3 text-indigo-600 bg-indigo-50 rounded-full"><i data-lucide="volume-2"></i></button>
+                                                    <button onClick={()=>speak(vocabCard.en)} className="p-3 text-indigo-600 bg-indigo-50 rounded-full hover:bg-indigo-100 transition-colors"><i data-lucide="volume-2"></i></button>
                                                 </div>
                                             )}
                                         </div>
@@ -221,10 +275,9 @@
                                         )}
                                     </div>
                                 ) : (
-                                    <div className="bg-white p-10 rounded-[3rem] border text-center space-y-4 shadow-sm">
+                                    <div className="bg-white p-10 rounded-[3rem] border text-center space-y-4 shadow-sm animate-fade">
                                         <div className="text-5xl">🎉</div>
                                         <p className="font-black text-slate-600 text-lg">오늘의 학습 완료!</p>
-                                        <p className="text-sm text-slate-400 font-medium">새 단어 학습량이나 복습 예정 단어가 없습니다.</p>
                                         <button onClick={()=>setPage('home')} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold mt-4">홈으로 가기</button>
                                     </div>
                                 )}
@@ -236,8 +289,7 @@
                                 <h2 className="text-2xl font-black italic px-2">Writing Study</h2>
                                 <div className="grid gap-3">
                                     {Object.keys(CATS).map(c => (
-                                        <button key={c} onClick={()=>{
-                                            setCategory(c); 
+                                        <button key={c} onClick={()=>{setCategory(c); 
                                             if(!currentQuote && pool[c]?.length > 0) {
                                                 setCurrentQuote(pool[c][0]);
                                                 setPool(p=>({...p, [c]:p[c].slice(1)}));
@@ -253,7 +305,6 @@
                                 )}
                             </div>
                         )}
-                        
                         {/* QuizView, History, Admin 등 기존 컴포넌트 생략 (동일 유지) */}
                     </main>
                     <IconUpdate />
