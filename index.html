@@ -18,6 +18,7 @@
         table { width: 100%; border-collapse: collapse; font-size: 11px; }
         th, td { padding: 12px 10px; border-bottom: 1px solid #f1f5f9; text-align: left; }
         th { background-color: #f8fafc; color: #64748b; font-weight: 900; }
+        textarea { font-family: monospace; font-size: 12px; }
     </style>
 </head>
 <body>
@@ -29,6 +30,7 @@
         const VOCAB_DB_KEY = 'Writing_Vocab_Storage';
         const SETTINGS_KEY = 'Writing_User_Settings';
         const HIST_KEY = 'Writing_Action_History';
+        const USER_REG_KEY = 'Writing_User_Registry'; // 접속 기록용
         
         const CATS = { Daily: "일상 대화", Wisdom: "명언과 격언", Cinema: "영화 대사" };
         const BIBLE_VERSES = [
@@ -54,6 +56,8 @@
             const [settings, setSettings] = useState(() => JSON.parse(localStorage.getItem(SETTINGS_KEY)) || { newCardLimit: 10 });
             const [vocabDB, setVocabDB] = useState(() => JSON.parse(localStorage.getItem(VOCAB_DB_KEY)) || []);
             const [writingHistory, setWritingHistory] = useState(() => JSON.parse(localStorage.getItem(HIST_KEY)) || []);
+            const [userReg, setUserReg] = useState(() => JSON.parse(localStorage.getItem(USER_REG_KEY)) || []);
+            
             const [vocabCard, setVocabCard] = useState(null);
             const [showVocabAns, setShowVocabAns] = useState(false);
             const [todayCount, setTodayCount] = useState(0); 
@@ -66,6 +70,7 @@
             useEffect(() => { localStorage.setItem(VOCAB_DB_KEY, JSON.stringify(vocabDB)); }, [vocabDB]);
             useEffect(() => { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
             useEffect(() => { localStorage.setItem(HIST_KEY, JSON.stringify(writingHistory)); }, [writingHistory]);
+            useEffect(() => { localStorage.setItem(USER_REG_KEY, JSON.stringify(userReg)); }, [userReg]);
 
             const getNextVocab = (currentEn = null) => {
                 const now = new Date().getTime();
@@ -111,6 +116,18 @@
                 return vocabDB.filter(v => v.en.toLowerCase().includes(searchTerm.toLowerCase()) || v.ko.includes(searchTerm));
             }, [vocabDB, searchTerm]);
 
+            const login = (name) => {
+                if(!name) return;
+                setUser(name);
+                localStorage.setItem('currentUser', name);
+                const now = new Date().toLocaleString();
+                setUserReg(prev => {
+                    const exists = prev.find(u => u.name === name);
+                    if(exists) return prev.map(u => u.name === name ? {...u, last: now} : u);
+                    return [...prev, {name, first: now, last: now}];
+                });
+            };
+
             const clearWritingHistory = () => { if (confirm("모든 작문 기록을 삭제하시겠습니까?")) setWritingHistory([]); };
             const speak = (t) => { if(!t) return; window.speechSynthesis.cancel(); const s = new SpeechSynthesisUtterance(t); s.lang = 'en-US'; s.rate = 0.9; window.speechSynthesis.speak(s); };
 
@@ -119,7 +136,7 @@
                     <div className="bg-white p-10 rounded-[3rem] w-full max-w-xs shadow-2xl text-center">
                         <h1 className="text-4xl font-black text-indigo-600 mb-8 italic tracking-tighter">Writing</h1>
                         <input id="un" className="w-full p-4 bg-slate-50 border-2 rounded-2xl mb-4 font-bold text-center outline-none" placeholder="이름 입력" />
-                        <button onClick={() => {const v=document.getElementById('un').value; if(v){setUser(v); localStorage.setItem('currentUser', v);}}} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black btn-active">입장하기</button>
+                        <button onClick={() => login(document.getElementById('un').value)} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black btn-active">입장하기</button>
                     </div>
                 </div>
             );
@@ -156,6 +173,36 @@
                                     <p className="text-sm font-bold text-slate-500 leading-relaxed px-2">{bibleVerse.krv}</p>
                                     <span className="inline-block bg-indigo-600 text-white px-6 py-2 rounded-full font-bold text-[10px] tracking-wide shadow-md">{bibleVerse.ref}</span>
                                 </div>
+                            </div>
+                        )}
+
+                        {page === 'admin_home' && (
+                            <div className="space-y-6 animate-fade">
+                                <h2 className="text-2xl font-black text-indigo-600">Admin Control</h2>
+                                
+                                <div className="space-y-4">
+                                    <h3 className="font-bold flex items-center gap-2 text-slate-400"><i data-lucide="users" size="16"></i> 접속 기록</h3>
+                                    <div className="bg-white rounded-2xl border overflow-hidden max-h-40 overflow-y-auto">
+                                        <table className="w-full text-[10px]">
+                                            <thead className="bg-slate-50"><tr><th>이름</th><th>최근 접속</th></tr></thead>
+                                            <tbody>
+                                                {userReg.map((u, i) => (
+                                                    <tr key={i}><td>{u.name}</td><td>{u.last}</td></tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    <h3 className="font-bold flex items-center gap-2 text-slate-400"><i data-lucide="database" size="16"></i> DB 관리</h3>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-bold">Vocabulary DB (JSON)</label>
+                                        <textarea id="db_v" className="w-full h-32 p-3 bg-slate-900 text-emerald-400 rounded-xl outline-none" defaultValue={JSON.stringify(vocabDB, null, 2)} />
+                                        <button onClick={() => { try { const d = JSON.parse(document.getElementById('db_v').value); setVocabDB(d); alert('저장됨'); } catch(e) { alert('형식 오류'); } }} className="w-full py-2 bg-indigo-600 text-white rounded-xl font-bold text-xs">단어 DB 수동 업데이트</button>
+                                    </div>
+                                </div>
+
+                                <button onClick={()=>{if(confirm("모든 데이터를 초기화하시겠습니까?")){localStorage.clear(); location.reload();}}} className="w-full p-4 bg-red-50 text-red-600 rounded-2xl font-black border-2 border-red-100">데이터 완전 초기화</button>
+                                <button onClick={()=>setPage('home')} className="w-full p-4 bg-slate-100 rounded-2xl font-bold">나가기</button>
                             </div>
                         )}
 
@@ -242,14 +289,6 @@
                                     <input type="range" min="5" max="100" step="5" value={settings.newCardLimit} onChange={(e)=>setSettings({...settings, newCardLimit: parseInt(e.target.value)})} className="w-full accent-indigo-600" />
                                 </div>
                                 <button onClick={()=>setPage('home')} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black">저장</button>
-                            </div>
-                        )}
-
-                        {page === 'admin_home' && (
-                            <div className="space-y-6 animate-fade">
-                                <h2 className="text-2xl font-black text-indigo-600 text-center">Admin Panel</h2>
-                                <button onClick={()=>{if(confirm("모든 데이터를 초기화하시겠습니까?")){localStorage.clear(); location.reload();}}} className="w-full p-6 bg-red-50 text-red-600 rounded-[2rem] font-black border-2 border-red-100">데이터 완전 초기화</button>
-                                <button onClick={()=>setPage('home')} className="w-full p-4 bg-slate-100 rounded-2xl font-bold">나가기</button>
                             </div>
                         )}
 
