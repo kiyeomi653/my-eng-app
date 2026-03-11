@@ -32,11 +32,11 @@
         const CATS = { Daily: "일상 대화", Wisdom: "명언과 격언", Cinema: "영화 대사" };
 
         const BIBLE_VERSES = [
-            { ref: "Galatians 2:20", text: "I have been crucified with Christ and I no longer live, but Christ lives in me." },
-            { ref: "Romans 12:1", text: "Therefore, I urge you, brothers and sisters, in view of God’s mercy, to offer your bodies as a living sacrifice." },
-            { ref: "Matthew 6:33", text: "But seek first his kingdom and his righteousness, and all these things will be given to you as well." },
-            { ref: "Philippians 4:6", text: "Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God." },
-            { ref: "Joshua 1:8", text: "Keep this Book of the Law always on your lips; meditate on it day and night." }
+            { ref: "Galatians 2:20", niv: "I have been crucified with Christ and I no longer live, but Christ lives in me.", krv: "내가 그리스도와 함께 십자가에 못 박혔나니 그런즉 이제는 내가 사는 것이 아니요 오직 내 안에 그리스도께서 사시는 것이라" },
+            { ref: "Romans 12:1", niv: "Therefore, I urge you, brothers and sisters, in view of God’s mercy, to offer your bodies as a living sacrifice.", krv: "그러므로 형제들아 내가 하나님의 모든 자비하심으로 너희를 권하노니 너희 몸을 하나님이 기뻐하시는 거룩한 산 제물로 드리라" },
+            { ref: "Matthew 6:33", niv: "But seek first his kingdom and his righteousness, and all these things will be given to you as well.", krv: "그런즉 너희는 먼저 그의 나라와 그의 의를 구하라 그리하면 이 모든 것을 너희에게 더하시리라" },
+            { ref: "Philippians 4:6", niv: "Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God.", krv: "아무 것도 염려하지 말고 다만 모든 일에 기도와 간구로, 너희 구할 것을 감사함으로 하나님께 아뢰라" },
+            { ref: "Joshua 1:8", niv: "Keep this Book of the Law always on your lips; meditate on it day and night.", krv: "이 율법책을 네 입에서 떠나지 말게 하며 주야로 그것을 묵상하여 그 안에 기록된 대로 다 지켜 행하라" }
         ];
 
         function App() {
@@ -52,7 +52,6 @@
             const [selectedLearner, setSelectedLearner] = useState(null);
             const [bibleVerse] = useState(() => BIBLE_VERSES[Math.floor(Math.random() * BIBLE_VERSES.length)]);
 
-            // 단어 학습 관련 상태
             const [vocabCard, setVocabCard] = useState(null);
             const [showVocabAns, setShowVocabAns] = useState(false);
 
@@ -91,14 +90,13 @@
                 }
             }, [user]);
 
-            // 단어 생성 AI (시뮬레이션)
             const getNextVocab = () => {
                 const vocabs = [
-                    { en: "Consistent", ko: "일관된", ex: "He is consistent in his hard work." },
-                    { en: "Inspiration", ko: "영감", ex: "Nature is a great source of inspiration." },
-                    { en: "Prioritize", ko: "우선순위를 정하다", ex: "You should prioritize your health." },
-                    { en: "Ambitious", ko: "야심 있는", ex: "The plan was very ambitious." },
-                    { en: "Essential", ko: "필수적인", ex: "Water is essential for life." }
+                    { en: "Consistent", ko: "일관된", ex: "He is consistent in his hard work.", exKo: "그는 성실함에 있어 일관적이다." },
+                    { en: "Inspiration", ko: "영감", ex: "Nature is a great source of inspiration.", exKo: "자연은 영감의 아주 훌륭한 원천이다." },
+                    { en: "Prioritize", ko: "우선순위를 정하다", ex: "You should prioritize your health.", exKo: "당신은 건강을 최우선으로 해야 합니다." },
+                    { en: "Ambitious", ko: "야심 있는", ex: "The plan was very ambitious.", exKo: "그 계획은 매우 야심찼다." },
+                    { en: "Essential", ko: "필수적인", ex: "Water is essential for life.", exKo: "물은 생명에 필수적이다." }
                 ];
                 const selected = vocabs[Math.floor(Math.random() * vocabs.length)];
                 setVocabCard({ ...selected, mode: Math.random() > 0.5 ? 'en-to-ko' : 'ko-to-en' });
@@ -198,12 +196,15 @@
                     <main className="p-6">
                         {page === 'home' && (
                             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-8 animate-fade">
-                                <div className="bg-indigo-50 p-10 rounded-[3rem] border-2 border-indigo-100 shadow-inner">
-                                    <i data-lucide="quote" className="text-indigo-200 mb-4 mx-auto" size="40"></i>
-                                    <p className="text-xl font-black text-indigo-900 leading-relaxed italic mb-6">"{bibleVerse.text}"</p>
-                                    <span className="bg-indigo-600 text-white px-6 py-2 rounded-full font-bold text-sm tracking-wide shadow-md">{bibleVerse.ref} (NIV)</span>
+                                <div className="bg-white p-10 rounded-[3rem] border-2 border-indigo-50 shadow-xl space-y-6">
+                                    <i data-lucide="quote" className="text-indigo-100 mx-auto" size="30"></i>
+                                    <div>
+                                        <p className="text-lg font-black text-indigo-900 leading-relaxed italic mb-4">"{bibleVerse.niv}"</p>
+                                        <p className="text-sm font-bold text-slate-500 leading-relaxed break-keep px-2">{bibleVerse.krv}</p>
+                                    </div>
+                                    <span className="inline-block bg-indigo-600 text-white px-6 py-2 rounded-full font-bold text-[10px] tracking-wide shadow-md">{bibleVerse.ref} (NIV / 개역개정)</span>
                                 </div>
-                                <p className="text-slate-400 font-bold text-sm">Navigators Topical Memory System</p>
+                                <p className="text-slate-400 font-bold text-xs">Navigators Topical Memory System</p>
                             </div>
                         )}
 
@@ -235,19 +236,24 @@
                         {page === 'vocab' && vocabCard && (
                             <div className="space-y-8 animate-fade text-center">
                                 <h2 className="text-2xl font-black italic">Vocab Study</h2>
-                                <div className="bg-white p-12 rounded-[3.5rem] border-4 border-slate-50 shadow-xl min-h-[300px] flex flex-col items-center justify-center space-y-6">
-                                    <div className="text-4xl font-black text-indigo-600">
+                                <div className="bg-white p-10 rounded-[3.5rem] border shadow-xl min-h-[350px] flex flex-col items-center justify-center space-y-6">
+                                    <div className="text-4xl font-black text-indigo-600 tracking-tight">
                                         {vocabCard.mode === 'en-to-ko' ? vocabCard.en : vocabCard.ko}
                                     </div>
                                     {showVocabAns && (
-                                        <div className="animate-fade space-y-4">
+                                        <div className="animate-fade space-y-5 w-full">
                                             <div className="text-xl font-bold text-slate-400">
                                                 {vocabCard.mode === 'en-to-ko' ? vocabCard.ko : vocabCard.en}
                                             </div>
-                                            <div className="bg-slate-50 p-4 rounded-2xl text-sm font-medium italic text-slate-500 border">
-                                                "{vocabCard.ex}"
+                                            <div className="space-y-2">
+                                                <div className="bg-slate-50 p-4 rounded-2xl text-sm font-medium italic text-slate-600 border border-slate-100">
+                                                    "{vocabCard.ex}"
+                                                </div>
+                                                <div className="text-[11px] font-bold text-indigo-400">
+                                                    {vocabCard.exKo}
+                                                </div>
                                             </div>
-                                            <button onClick={()=>speak(vocabCard.en)} className="p-3 text-indigo-600 bg-indigo-50 rounded-full"><i data-lucide="volume-2"></i></button>
+                                            <button onClick={()=>speak(vocabCard.en)} className="p-3 text-indigo-600 bg-indigo-50 rounded-full hover:bg-indigo-100 transition-colors"><i data-lucide="volume-2"></i></button>
                                         </div>
                                     )}
                                 </div>
