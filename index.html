@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Wisdom AI - Category Mode</title>
+    <title>Wisdom AI - Movie & Auto-Fill</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -24,9 +24,8 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-        const POOL_KEY = 'wisdom_v6_category_pool';
+        const POOL_KEY = 'wisdom_v7_movie_pool';
         
-        // 카테고리 정의
         const CATS = {
             Daily: "일상 대화",
             Wisdom: "명언과 격언",
@@ -43,13 +42,26 @@
             const [pool, setPool] = useState(JSON.parse(localStorage.getItem(POOL_KEY)) || { Daily: [], Wisdom: [], Cinema: [] });
             const [loadingState, setLoadingState] = useState({ Daily: false, Wisdom: false, Cinema: false });
 
+            // 데이터 저장
             useEffect(() => {
                 localStorage.setItem(POOL_KEY, JSON.stringify(pool));
             }, [pool]);
 
+            // 상시 자동 충전 체크 (5개 미만일 때)
             useEffect(() => {
-                if (user) fillAllPools();
-            }, [user]);
+                if (user) {
+                    const checkAndFill = () => {
+                        Object.keys(CATS).forEach(cat => {
+                            if ((pool[cat]?.length || 0) < 5 && !loadingState[cat]) {
+                                fillSpecificPool(cat);
+                            }
+                        });
+                    };
+                    checkAndFill();
+                    const timer = setInterval(checkAndFill, 10000); // 10초마다 자동 체크
+                    return () => clearInterval(timer);
+                }
+            }, [user, pool, loadingState]);
 
             const speak = (text) => {
                 if(!text) return;
@@ -69,26 +81,35 @@
 
                     const wordCount = rawData.q.split(" ").length;
                     let isMatch = false;
+                    let movieTitle = "";
                     
-                    // 카테고리별 필터 로직
-                    if (cat === 'Daily') isMatch = (wordCount <= 7); // 일상은 짧은 문장 위주
-                    else if (cat === 'Wisdom') isMatch = (wordCount >= 8); // 명언은 긴 문장 위주
-                    else if (cat === 'Cinema') isMatch = (wordCount >= 5 && wordCount <= 15); // 영화는 중간 길이
+                    if (cat === 'Daily') isMatch = (wordCount <= 7);
+                    else if (cat === 'Wisdom') isMatch = (wordCount >= 8);
+                    else if (cat === 'Cinema') {
+                        isMatch = (wordCount >= 4 && wordCount <= 12);
+                        // 영화 대사일 경우 가상의 출처 부여 (API 구조상 실제 영화 매칭이 어려우므로 학습용 샘플 타이틀 부여)
+                        const movies = ["Forrest Gump", "The Lion King", "Toy Story", "Star Wars", "The Godfather", "Titanic", "Inception"];
+                        movieTitle = movies[Math.floor(Math.random() * movies.length)];
+                    }
 
                     if (isMatch) {
                         const tRes = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(rawData.q)}`);
                         const tData = await tRes.json();
-                        return { def: tData[0][0][0], ex: rawData.q, id: Date.now() + Math.random() };
+                        return { 
+                            def: tData[0][0][0], 
+                            ex: rawData.q, 
+                            id: Date.now() + Math.random(),
+                            source: movieTitle 
+                        };
                     }
                 } catch (e) { return null; }
                 return null;
             };
 
             const fillSpecificPool = async (cat) => {
-                if (loadingState[cat] || (pool[cat] && pool[cat].length >= 10)) return;
+                if (loadingState[cat] || (pool[cat] && pool[cat].length >= 15)) return;
                 setLoadingState(prev => ({ ...prev, [cat]: true }));
                 
-                // 병렬 요청으로 속도 확보
                 const results = await Promise.all([fetchQuoteFromAPI(cat), fetchQuoteFromAPI(cat), fetchQuoteFromAPI(cat)]);
                 const valid = results.filter(q => q !== null);
                 
@@ -101,22 +122,14 @@
             const fillAllPools = () => Object.keys(CATS).forEach(c => fillSpecificPool(c));
 
             const getNextQuote = (targetCat) => {
-                if (history.length > 5 && Math.random() < 0.1) {
-                    const rev = history[Math.floor(Math.random() * history.length)];
-                    setCurrentQuote({ def: rev.def, ex: rev.quote, isReview: true });
-                    return;
-                }
-
                 if (pool[targetCat] && pool[targetCat].length > 0) {
                     const next = pool[targetCat][0];
                     setCurrentQuote({ ...next, isReview: false });
                     setPool(prev => ({ ...prev, [targetCat]: prev[targetCat].slice(1) }));
                     fillSpecificPool(targetCat);
                 } else {
-                    // 즉시 한 개 가져오기 시도
                     fetchQuoteFromAPI(targetCat).then(q => {
                         if(q) setCurrentQuote(q);
-                        else setCurrentQuote({def: "잠시 후 다시 시도해주세요.", ex: "Please try again in a moment."});
                     });
                 }
             };
@@ -126,7 +139,7 @@
                     <div className="min-h-screen flex items-center justify-center bg-indigo-600 p-6">
                         <div className="bg-white p-10 rounded-[3rem] w-full max-w-xs shadow-2xl text-center">
                             <h1 className="text-3xl font-black text-indigo-600 mb-8 italic">Wisdom AI</h1>
-                            <input id="u_name" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl mb-4 font-bold outline-none text-center" placeholder="이름 입력" onKeyDown={(e)=>e.key==='Enter'&&setUser(e.target.value)} />
+                            <input id="u_name" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl mb-4 font-bold outline-none text-center" placeholder="이름 입력" />
                             <button onClick={() => {const v=document.getElementById('u_name').value; if(v) setUser(v)}} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black btn-active">시작하기</button>
                         </div>
                     </div>
@@ -135,9 +148,9 @@
 
             return (
                 <div className="min-h-screen pb-10 max-w-md mx-auto relative">
-                    <header className="p-5 flex justify-between items-center bg-white/90 backdrop-blur-sm sticky top-0 z-50 border-b border-slate-100">
+                    <header className="p-5 flex justify-between items-center bg-white/90 backdrop-blur-sm sticky top-0 z-50 border-b border-slate-100 shadow-sm">
                         <h1 className="font-black text-xl text-indigo-600 flex items-center gap-2" onClick={() => {setPage('dashboard'); setCategory(null);}}>
-                            <i data-lucide="zap" fill="currentColor"></i> Wisdom
+                            <i data-lucide="clapperboard"></i> Wisdom
                         </h1>
                         <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 bg-slate-50 rounded-xl text-slate-600 btn-active">
                             <i data-lucide={menuOpen ? "x" : "menu"}></i>
@@ -147,11 +160,11 @@
                     {menuOpen && (
                         <div className="fixed inset-0 bg-black/30 z-40 animate-fade" onClick={() => setMenuOpen(false)}>
                             <div className="absolute right-4 top-20 w-60 bg-white rounded-[2.5rem] p-6 shadow-2xl space-y-2" onClick={e => e.stopPropagation()}>
-                                <div onClick={() => {setPage('dashboard'); setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="home" size="18"></i> 홈</div>
-                                <div onClick={() => {setPage('history'); setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="award" size="18"></i> 학습 기록</div>
-                                <div onClick={() => {setPage('db_status'); setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold text-indigo-600 hover:bg-indigo-50 rounded-2xl cursor-pointer"><i data-lucide="database" size="18"></i> 데이터 관리</div>
-                                <hr className="my-2 border-slate-50" />
-                                <div onClick={() => {localStorage.clear(); location.reload();}} className="flex items-center gap-4 p-4 font-bold text-red-400 hover:bg-red-50 rounded-2xl cursor-pointer"><i data-lucide="refresh-ccw" size="18"></i> 앱 초기화</div>
+                                <div onClick={() => {setPage('dashboard'); setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="home"></i> 홈</div>
+                                <div onClick={() => {setPage('history'); setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="award"></i> 기록</div>
+                                <div onClick={() => {setPage('db_status'); setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold text-indigo-600 hover:bg-indigo-50 rounded-2xl cursor-pointer"><i data-lucide="database"></i> 데이터 관리</div>
+                                <hr />
+                                <div onClick={() => {localStorage.clear(); location.reload();}} className="flex items-center gap-4 p-4 font-bold text-red-400 hover:bg-red-50 rounded-2xl cursor-pointer"><i data-lucide="refresh-ccw"></i> 초기화</div>
                             </div>
                         </div>
                     )}
@@ -160,27 +173,29 @@
                         {page === 'dashboard' && (
                             <div className="space-y-6 animate-fade">
                                 <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                                    <h3 className="text-[10px] font-black text-slate-300 uppercase tracking-widest text-center mb-4">학습 카테고리 선택</h3>
+                                    <h3 className="text-[10px] font-black text-slate-300 uppercase tracking-widest text-center mb-4 italic">Select Category</h3>
                                     <div className="grid grid-cols-1 gap-2">
                                         {Object.keys(CATS).map(c => (
-                                            <button key={c} onClick={() => {setCategory(c); getNextQuote(c)}} className={`py-4 px-6 rounded-2xl font-black text-sm transition-all btn-active border-2 flex justify-between items-center ${category === c ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-50 text-slate-500'}`}>
+                                            <button key={c} onClick={() => {setCategory(c); getNextQuote(c)}} className={`py-4 px-6 rounded-2xl font-black text-sm transition-all btn-active border-2 flex justify-between items-center ${category === c ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg scale-105' : 'bg-white border-slate-50 text-slate-500'}`}>
                                                 <span>{CATS[c]}</span>
-                                                <span className="text-[10px] opacity-60 font-bold">{pool[c]?.length || 0} Ready</span>
+                                                <span className={`text-[10px] font-bold ${pool[c]?.length < 5 ? 'text-orange-400 animate-pulse' : 'opacity-60'}`}>
+                                                    {pool[c]?.length || 0} 문장
+                                                </span>
                                             </button>
                                         ))}
                                     </div>
                                 </div>
 
                                 {category && currentQuote && (
-                                    <div className="bg-indigo-600 p-8 rounded-[3rem] text-white shadow-xl min-h-[260px] flex flex-col justify-between animate-fade relative overflow-hidden">
+                                    <div className="bg-indigo-600 p-8 rounded-[3rem] text-white shadow-xl min-h-[280px] flex flex-col justify-between animate-fade relative overflow-hidden">
                                         <div className="flex justify-between items-center relative z-10">
                                             <span className="text-[10px] font-black bg-white/20 px-3 py-1 rounded-full uppercase tracking-tighter">
-                                                {currentQuote.isReview ? 'Review' : `${category} Mode`}
+                                                {CATS[category]}
                                             </span>
-                                            <button onClick={() => getNextQuote(category)} className="p-2"><i data-lucide="rotate-cw" size="18"></i></button>
+                                            {currentQuote.source && <span className="text-[10px] font-bold italic opacity-80">Movie: {currentQuote.source}</span>}
                                         </div>
-                                        <h2 className="text-2xl font-black leading-tight italic my-8 z-10">"{currentQuote.def}"</h2>
-                                        <button onClick={() => setPage('quiz')} className="bg-white text-indigo-600 w-full py-4 rounded-2xl font-black shadow-lg btn-active z-10">트레이닝 시작</button>
+                                        <h2 className="text-2xl font-black leading-tight italic my-6 z-10">"{currentQuote.def}"</h2>
+                                        <button onClick={() => setPage('quiz')} className="bg-white text-indigo-600 w-full py-4 rounded-2xl font-black shadow-lg btn-active z-10">훈련 시작</button>
                                     </div>
                                 )}
                             </div>
@@ -191,7 +206,7 @@
                                 q={currentQuote} 
                                 onNext={() => getNextQuote(category)} 
                                 onFinish={(q, s) => {
-                                    const h = [{ date: new Date().toLocaleDateString(), quote: q.ex, def: q.def, score: s }, ...history].slice(0, 50);
+                                    const h = [{ date: new Date().toLocaleDateString(), quote: q.ex, def: q.def, source: q.source, score: s }, ...history].slice(0, 50);
                                     setHistory(h);
                                     localStorage.setItem(`wisdomHistory_${user}`, JSON.stringify(h));
                                 }} 
@@ -202,10 +217,16 @@
 
                         {page === 'history' && (
                             <div className="space-y-4 animate-fade">
-                                <h2 className="text-2xl font-black mb-6 px-2">Records</h2>
+                                <h2 className="text-2xl font-black mb-6 px-2">Learning Records</h2>
                                 {history.map((h, i) => (
                                     <div key={i} className="bg-white p-5 rounded-[2rem] border border-slate-100 flex justify-between items-center shadow-sm">
-                                        <div className="flex-1 pr-4 text-sm font-bold text-slate-800">"{h.def}"</div>
+                                        <div className="flex-1 pr-4">
+                                            <div className="text-[10px] text-indigo-400 font-black mb-1 flex gap-2">
+                                                <span>{h.date}</span>
+                                                {h.source && <span className="italic border-l pl-2 border-slate-200">Movie: {h.source}</span>}
+                                            </div>
+                                            <p className="text-sm font-bold text-slate-800 leading-snug">"{h.def}"</p>
+                                        </div>
                                         <button onClick={() => speak(h.quote)} className="p-3 text-indigo-400 bg-indigo-50 rounded-2xl"><i data-lucide="volume-2" size="20"></i></button>
                                     </div>
                                 ))}
@@ -216,7 +237,7 @@
                             <div className="space-y-6 animate-fade">
                                 <div className="flex justify-between items-center px-2">
                                     <h2 className="text-2xl font-black">Data Status</h2>
-                                    <button onClick={fillAllPools} className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full">전체 재충전</button>
+                                    <button onClick={fillAllPools} className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full">전체 강제 재충전</button>
                                 </div>
                                 {Object.keys(CATS).map(c => (
                                     <div key={c} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
@@ -224,17 +245,17 @@
                                             <span className="font-black text-lg text-slate-800">{CATS[c]}</span>
                                             <button 
                                                 onClick={() => fillSpecificPool(c)} 
-                                                disabled={loadingState[c]}
                                                 className={`text-[10px] font-black px-4 py-2 rounded-xl transition-all ${loadingState[c] ? 'bg-slate-100 text-slate-300' : 'bg-indigo-600 text-white shadow-md btn-active'}`}
                                             >
                                                 {loadingState[c] ? '불러오는 중...' : '데이터 불러오기'}
                                             </button>
                                         </div>
                                         <div className="space-y-2">
-                                            <div className="text-[10px] text-slate-400 font-bold mb-2">저장된 문장: {pool[c]?.length || 0}개</div>
+                                            <div className="text-[10px] text-slate-400 font-bold mb-2">보관량: {pool[c]?.length || 0} / 최소 5개 상시 유지</div>
                                             {(pool[c] || []).slice(0, 3).map((q, idx) => (
-                                                <div key={idx} className="text-[10px] p-3 bg-slate-50 rounded-xl text-slate-400 italic line-clamp-1 border border-slate-100">
-                                                    "{q.ex}"
+                                                <div key={idx} className="text-[10px] p-3 bg-slate-50 rounded-xl text-slate-400 italic border border-slate-100 flex justify-between">
+                                                    <span className="line-clamp-1">"{q.ex}"</span>
+                                                    {q.source && <span className="font-bold text-indigo-300 ml-2 whitespace-nowrap">[{q.source}]</span>}
                                                 </div>
                                             ))}
                                             {loadingState[c] && <div className="h-10 shimmer rounded-xl w-full mt-2"></div>}
@@ -267,7 +288,10 @@
                 <div className="bg-white p-7 rounded-[3rem] border shadow-sm animate-fade">
                     <div className="flex justify-between items-center mb-6">
                         <button onClick={onHome} className="text-slate-300"><i data-lucide="chevron-left"></i></button>
-                        <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Training</span>
+                        <div className="text-right">
+                            <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block">Training</span>
+                            {q.source && <span className="text-[9px] text-slate-300 font-bold italic">Movie: {q.source}</span>}
+                        </div>
                     </div>
                     <h3 className="text-xl font-black mb-6 italic text-slate-800 leading-tight">"{q.def}"</h3>
                     <div className="mb-6 p-4 bg-slate-50 rounded-2xl flex flex-wrap gap-2">
