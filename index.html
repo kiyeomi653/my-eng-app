@@ -30,7 +30,7 @@
         const VOCAB_DB_KEY = 'Writing_Vocab_Storage';
         const SETTINGS_KEY = 'Writing_User_Settings';
         const HIST_KEY = 'Writing_Action_History';
-        const USER_REG_KEY = 'Writing_User_Registry'; // 접속 기록용
+        const USER_REG_KEY = 'Writing_User_Registry';
         
         const CATS = { Daily: "일상 대화", Wisdom: "명언과 격언", Cinema: "영화 대사" };
         const BIBLE_VERSES = [
@@ -42,9 +42,7 @@
         const RAW_VOCABS = [
             { en: "Consistent", ko: "일관된", ex: "He is consistent in his hard work.", exKo: "그는 성실함에 있어 일관적이다." },
             { en: "Inspiration", ko: "영감", ex: "Nature is a great source of inspiration.", exKo: "자연은 영감의 아주 훌륭한 원천이다." },
-            { en: "Prioritize", ko: "우선순위를 정하다", ex: "You should prioritize your health.", exKo: "당신은 건강을 최우선으로 해야 합니다." },
-            { en: "Ambitious", ko: "야심 있는", ex: "The plan was very ambitious.", exKo: "그 계획은 매우 야심찼다." },
-            { en: "Essential", ko: "필수적인", ex: "Water is essential for life.", exKo: "물은 생명에 필수적이다." }
+            { en: "Prioritize", ko: "우선순위를 정하다", ex: "You should prioritize your health.", exKo: "당신은 건강을 최우선으로 해야 합니다." }
         ];
 
         function App() {
@@ -74,34 +72,21 @@
 
             const getNextVocab = (currentEn = null) => {
                 const now = new Date().getTime();
-                const reviewQueue = vocabDB
-                    .filter(v => v.nextReview && v.nextReview <= now && v.en !== currentEn)
-                    .sort((a, b) => a.easiness - b.easiness);
-
-                if (reviewQueue.length > 0) {
-                    setVocabCard({ ...reviewQueue[0], isReview: true });
-                } else if (todayCount < settings.newCardLimit) {
+                const reviewQueue = vocabDB.filter(v => v.nextReview && v.nextReview <= now && v.en !== currentEn).sort((a, b) => a.easiness - b.easiness);
+                if (reviewQueue.length > 0) { setVocabCard({ ...reviewQueue[0], isReview: true }); } 
+                else if (todayCount < settings.newCardLimit) {
                     const learnedEn = vocabDB.map(v => v.en);
                     const newCandidate = RAW_VOCABS.find(v => !learnedEn.includes(v.en) && v.en !== currentEn);
-                    if (newCandidate) {
-                        setVocabCard({ ...newCandidate, interval: 0, easiness: 2.5, repetitions: 0, mode: Math.random() > 0.5 ? 'en-to-ko' : 'ko-to-en', isReview: false });
-                    } else {
-                        const fallbackQueue = [...vocabDB].filter(v => v.en !== currentEn).sort((a, b) => a.nextReview - b.nextReview);
-                        setVocabCard(fallbackQueue[0] ? { ...fallbackQueue[0], isReview: true } : null);
-                    }
-                } else {
-                    const extraQueue = [...vocabDB].filter(v => v.en !== currentEn).sort((a, b) => a.easiness - b.easiness);
-                    setVocabCard(extraQueue[0] ? { ...extraQueue[0], isReview: true } : null);
-                }
+                    if (newCandidate) { setVocabCard({ ...newCandidate, interval: 0, easiness: 2.5, repetitions: 0, mode: Math.random() > 0.5 ? 'en-to-ko' : 'ko-to-en', isReview: false }); } 
+                    else { const fb = [...vocabDB].filter(v => v.en !== currentEn).sort((a, b) => a.nextReview - b.nextReview); setVocabCard(fb[0] ? { ...fb[0], isReview: true } : null); }
+                } else { const ex = [...vocabDB].filter(v => v.en !== currentEn).sort((a, b) => a.easiness - b.easiness); setVocabCard(ex[0] ? { ...ex[0], isReview: true } : null); }
                 setShowVocabAns(false);
             };
 
             const handleAnkiChoice = (quality) => {
                 let { interval, easiness, repetitions, en } = vocabCard;
                 if (quality >= 2) {
-                    if (repetitions === 0) interval = 1;
-                    else if (repetitions === 1) interval = 6;
-                    else interval = Math.round(interval * easiness);
+                    if (repetitions === 0) interval = 1; else if (repetitions === 1) interval = 6; else interval = Math.round(interval * easiness);
                     repetitions++;
                 } else { repetitions = 0; interval = 1; }
                 easiness = Math.max(1.3, easiness + (0.1 - (3 - quality) * (0.08 + (3 - quality) * 0.02)));
@@ -112,14 +97,10 @@
                 getNextVocab(en);
             };
 
-            const filteredVocab = useMemo(() => {
-                return vocabDB.filter(v => v.en.toLowerCase().includes(searchTerm.toLowerCase()) || v.ko.includes(searchTerm));
-            }, [vocabDB, searchTerm]);
+            const filteredVocab = useMemo(() => vocabDB.filter(v => v.en.toLowerCase().includes(searchTerm.toLowerCase()) || v.ko.includes(searchTerm)), [vocabDB, searchTerm]);
 
             const login = (name) => {
-                if(!name) return;
-                setUser(name);
-                localStorage.setItem('currentUser', name);
+                if(!name) return; setUser(name); localStorage.setItem('currentUser', name);
                 const now = new Date().toLocaleString();
                 setUserReg(prev => {
                     const exists = prev.find(u => u.name === name);
@@ -127,19 +108,6 @@
                     return [...prev, {name, first: now, last: now}];
                 });
             };
-
-            const clearWritingHistory = () => { if (confirm("모든 작문 기록을 삭제하시겠습니까?")) setWritingHistory([]); };
-            const speak = (t) => { if(!t) return; window.speechSynthesis.cancel(); const s = new SpeechSynthesisUtterance(t); s.lang = 'en-US'; s.rate = 0.9; window.speechSynthesis.speak(s); };
-
-            if (!user) return (
-                <div className="min-h-screen flex items-center justify-center bg-indigo-600 p-6">
-                    <div className="bg-white p-10 rounded-[3rem] w-full max-w-xs shadow-2xl text-center">
-                        <h1 className="text-4xl font-black text-indigo-600 mb-8 italic tracking-tighter">Writing</h1>
-                        <input id="un" className="w-full p-4 bg-slate-50 border-2 rounded-2xl mb-4 font-bold text-center outline-none" placeholder="이름 입력" />
-                        <button onClick={() => login(document.getElementById('un').value)} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black btn-active">입장하기</button>
-                    </div>
-                </div>
-            );
 
             return (
                 <div className="min-h-screen pb-10 max-w-md mx-auto relative">
@@ -169,40 +137,48 @@
                             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-8 animate-fade">
                                 <div className="bg-white p-10 rounded-[3rem] border-2 border-indigo-50 shadow-xl space-y-6">
                                     <i data-lucide="quote" className="text-indigo-100 mx-auto" size="30"></i>
-                                    <p className="text-lg font-black text-indigo-900 leading-relaxed italic mb-4">"{bibleVerse.niv}"</p>
-                                    <p className="text-sm font-bold text-slate-500 leading-relaxed px-2">{bibleVerse.krv}</p>
-                                    <span className="inline-block bg-indigo-600 text-white px-6 py-2 rounded-full font-bold text-[10px] tracking-wide shadow-md">{bibleVerse.ref}</span>
+                                    <p className="text-lg font-black text-indigo-900 leading-relaxed italic">"{bibleVerse.niv}"</p>
+                                    <p className="text-sm font-bold text-slate-500">{bibleVerse.krv}</p>
+                                    <span className="inline-block bg-indigo-600 text-white px-6 py-2 rounded-full font-bold text-[10px] shadow-md">{bibleVerse.ref}</span>
                                 </div>
                             </div>
                         )}
 
                         {page === 'admin_home' && (
-                            <div className="space-y-6 animate-fade">
-                                <h2 className="text-2xl font-black text-indigo-600">Admin Control</h2>
-                                
-                                <div className="space-y-4">
-                                    <h3 className="font-bold flex items-center gap-2 text-slate-400"><i data-lucide="users" size="16"></i> 접속 기록</h3>
-                                    <div className="bg-white rounded-2xl border overflow-hidden max-h-40 overflow-y-auto">
-                                        <table className="w-full text-[10px]">
-                                            <thead className="bg-slate-50"><tr><th>이름</th><th>최근 접속</th></tr></thead>
-                                            <tbody>
-                                                {userReg.map((u, i) => (
-                                                    <tr key={i}><td>{u.name}</td><td>{u.last}</td></tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-
-                                    <h3 className="font-bold flex items-center gap-2 text-slate-400"><i data-lucide="database" size="16"></i> DB 관리</h3>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-bold">Vocabulary DB (JSON)</label>
-                                        <textarea id="db_v" className="w-full h-32 p-3 bg-slate-900 text-emerald-400 rounded-xl outline-none" defaultValue={JSON.stringify(vocabDB, null, 2)} />
-                                        <button onClick={() => { try { const d = JSON.parse(document.getElementById('db_v').value); setVocabDB(d); alert('저장됨'); } catch(e) { alert('형식 오류'); } }} className="w-full py-2 bg-indigo-600 text-white rounded-xl font-bold text-xs">단어 DB 수동 업데이트</button>
-                                    </div>
+                            <div className="space-y-4 animate-fade">
+                                <h2 className="text-2xl font-black text-indigo-600">Admin Panel</h2>
+                                <div className="grid gap-3">
+                                    <button onClick={()=>setPage('admin_users')} className="p-5 bg-white border-2 border-slate-50 rounded-2xl font-bold flex justify-between items-center">접속 기록 관리 <i data-lucide="chevron-right"></i></button>
+                                    <button onClick={()=>setPage('admin_db')} className="p-5 bg-white border-2 border-slate-50 rounded-2xl font-bold flex justify-between items-center">DB 데이터 관리 <i data-lucide="chevron-right"></i></button>
+                                    <button onClick={()=>{if(confirm("모든 데이터를 초기화하시겠습니까?")){localStorage.clear(); location.reload();}}} className="p-5 bg-red-50 text-red-600 rounded-2xl font-bold border-2 border-red-100 text-left">시스템 완전 초기화</button>
                                 </div>
+                                <button onClick={()=>setPage('home')} className="w-full p-4 bg-slate-100 rounded-2xl font-bold mt-4">나가기</button>
+                            </div>
+                        )}
 
-                                <button onClick={()=>{if(confirm("모든 데이터를 초기화하시겠습니까?")){localStorage.clear(); location.reload();}}} className="w-full p-4 bg-red-50 text-red-600 rounded-2xl font-black border-2 border-red-100">데이터 완전 초기화</button>
-                                <button onClick={()=>setPage('home')} className="w-full p-4 bg-slate-100 rounded-2xl font-bold">나가기</button>
+                        {page === 'admin_users' && (
+                            <div className="space-y-4 animate-fade">
+                                <div className="flex items-center gap-2 mb-2" onClick={()=>setPage('admin_home')}><i data-lucide="arrow-left" size="18"></i> <h2 className="text-xl font-black">접속 기록</h2></div>
+                                <div className="bg-white rounded-2xl border overflow-hidden">
+                                    <table className="w-full text-[10px]">
+                                        <thead className="bg-slate-50"><tr><th>이름</th><th>최근 접속</th></tr></thead>
+                                        <tbody>{userReg.map((u, i) => (<tr key={i}><td>{u.name}</td><td>{u.last}</td></tr>))}</tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {page === 'admin_db' && (
+                            <div className="space-y-4 animate-fade">
+                                <div className="flex items-center gap-2 mb-2" onClick={()=>setPage('admin_home')}><i data-lucide="arrow-left" size="18"></i> <h2 className="text-xl font-black">DB 관리</h2></div>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-[10px] font-bold block mb-1">Vocabulary DB (JSON)</label>
+                                        <textarea id="db_v_raw" className="w-full h-48 p-3 bg-slate-900 text-emerald-400 rounded-xl outline-none text-[10px]" defaultValue={JSON.stringify(vocabDB, null, 2)} />
+                                        <button onClick={() => { try { setVocabDB(JSON.parse(document.getElementById('db_v_raw').value)); alert('반영됨'); } catch(e) { alert('JSON 오류'); } }} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs mt-2">단어 데이터 업데이트</button>
+                                    </div>
+                                    <div className="p-4 bg-orange-50 rounded-xl border border-orange-100 text-[10px] text-orange-600 font-medium">주의: JSON 형식이 틀리면 앱이 멈출 수 있습니다.</div>
+                                </div>
                             </div>
                         )}
 
@@ -210,17 +186,13 @@
                             <div className="space-y-6 animate-fade">
                                 <h2 className="text-2xl font-black italic">My Vocabulary</h2>
                                 <input className="w-full p-4 rounded-2xl border-2 border-slate-100 outline-none focus:border-indigo-300 font-bold" placeholder="단어 검색..." value={searchTerm} onChange={(e)=>setSearchTerm(e.target.value)} />
-                                <div className="bg-white rounded-[2rem] border overflow-hidden shadow-sm">
+                                <div className="bg-white rounded-[2rem] border overflow-hidden">
                                     {filteredVocab.length > 0 ? (
                                         <table>
                                             <thead><tr><th>단어</th><th>복습</th><th>난이도</th></tr></thead>
-                                            <tbody>
-                                                {filteredVocab.sort((a,b)=>b.nextReview - a.nextReview).map((v, i) => (
-                                                    <tr key={i}><td className="font-bold">{v.en}<br/><span className="text-[9px] text-slate-400">{v.ko}</span></td><td className="text-center font-bold text-indigo-600">{v.repetitions}회</td><td className="text-slate-400">{v.easiness.toFixed(1)}</td></tr>
-                                                ))}
-                                            </tbody>
+                                            <tbody>{filteredVocab.map((v, i) => (<tr key={i}><td className="font-bold">{v.en}<br/><span className="text-[9px] text-slate-400">{v.ko}</span></td><td className="text-center font-bold text-indigo-600">{v.repetitions}회</td><td className="text-slate-400">{v.easiness.toFixed(1)}</td></tr>))}</tbody>
                                         </table>
-                                    ) : <div className="p-10 text-center text-slate-400 font-bold">결과가 없습니다.</div>}
+                                    ) : <div className="p-10 text-center text-slate-400 font-bold">결과 없음</div>}
                                 </div>
                             </div>
                         )}
@@ -229,23 +201,15 @@
                             <div className="space-y-6 animate-fade">
                                 <div className="flex justify-between items-center px-1">
                                     <h2 className="text-2xl font-black italic">Writing History</h2>
-                                    <button onClick={clearWritingHistory} className="text-[10px] font-bold text-red-400 border border-red-100 px-3 py-1 rounded-full bg-white shadow-sm">기록 삭제</button>
+                                    <button onClick={()=>{if(confirm("기록을 삭제할까요?")) setWritingHistory([]);}} className="text-[10px] font-bold text-red-400 border border-red-100 px-3 py-1 rounded-full bg-white">기록 삭제</button>
                                 </div>
                                 <div className="bg-white rounded-[2rem] border overflow-hidden shadow-sm">
                                     {writingHistory.length > 0 ? (
                                         <table>
                                             <thead><tr><th>카테고리</th><th>문장</th><th>상태</th></tr></thead>
-                                            <tbody>
-                                                {writingHistory.map((h, i) => (
-                                                    <tr key={i}>
-                                                        <td className="text-[9px] font-black text-indigo-500">{CATS[h.cat] || '기타'}</td>
-                                                        <td className="font-medium">{h.sentence}</td>
-                                                        <td><span className={`px-2 py-1 rounded-full text-[9px] font-bold ${h.correct ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>{h.correct ? '성공' : '오답'}</span></td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
+                                            <tbody>{writingHistory.map((h, i) => (<tr key={i}><td className="text-[9px] font-black text-indigo-500">{CATS[h.cat] || '기타'}</td><td className="font-medium">{h.sentence}</td><td><span className={`px-2 py-1 rounded-full text-[9px] font-bold ${h.correct ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>{h.correct ? '성공' : '오답'}</span></td></tr>))}</tbody>
                                         </table>
-                                    ) : <div className="p-10 text-center text-slate-400 font-bold">기록이 없습니다.</div>}
+                                    ) : <div className="p-10 text-center text-slate-400 font-bold">기록 없음</div>}
                                 </div>
                             </div>
                         )}
@@ -253,31 +217,20 @@
                         {page === 'vocab' && (
                             <div className="space-y-6 animate-fade">
                                 <div className="flex justify-between items-center">
-                                    <div className="flex flex-col">
-                                        <h2 className="text-2xl font-black italic">Vocab</h2>
-                                        {vocabCard && <span className={`text-[10px] font-bold ${vocabCard.isReview ? 'text-orange-500' : 'text-indigo-500'}`}>{vocabCard.isReview ? '● 무한 복습 모드' : '● 일일 새 단어 학습'}</span>}
-                                    </div>
+                                    <div className="flex flex-col"><h2 className="text-2xl font-black italic">Vocab</h2>{vocabCard && <span className={`text-[10px] font-bold ${vocabCard.isReview ? 'text-orange-500' : 'text-indigo-500'}`}>{vocabCard.isReview ? '● 무한 복습' : '● 일일 학습'}</span>}</div>
                                     {vocabCard && !vocabCard.isReview && <div className="text-[10px] font-black text-slate-400 px-3 py-1 bg-white rounded-full border">진행: {todayCount}/{settings.newCardLimit}</div>}
                                 </div>
                                 {vocabCard ? (
-                                    <div className="space-y-8 animate-fade text-center">
+                                    <div className="space-y-8 text-center">
                                         <div className="bg-white p-10 rounded-[3.5rem] border shadow-xl min-h-[300px] flex flex-col items-center justify-center space-y-6">
                                             <div className="text-4xl font-black text-indigo-600">{vocabCard.mode === 'en-to-ko' ? vocabCard.en : vocabCard.ko}</div>
-                                            {showVocabAns && (
-                                                <div className="animate-fade space-y-5">
-                                                    <div className="text-xl font-bold text-slate-400">{vocabCard.mode === 'en-to-ko' ? vocabCard.ko : vocabCard.en}</div>
-                                                    <button onClick={()=>speak(vocabCard.en)} className="p-3 text-indigo-600 bg-indigo-50 rounded-full"><i data-lucide="volume-2"></i></button>
-                                                </div>
-                                            )}
+                                            {showVocabAns && <div className="animate-fade space-y-5"><div className="text-xl font-bold text-slate-400">{vocabCard.mode === 'en-to-ko' ? vocabCard.ko : vocabCard.en}</div></div>}
                                         </div>
                                         {!showVocabAns ? <button onClick={()=>setShowVocabAns(true)} className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black shadow-lg">정답 확인</button> : (
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <button onClick={()=>handleAnkiChoice(0)} className="p-4 bg-red-50 text-red-500 rounded-2xl font-bold">모름</button>
-                                                <button onClick={()=>handleAnkiChoice(3)} className="p-4 bg-emerald-50 text-emerald-500 rounded-2xl font-bold">완벽</button>
-                                            </div>
+                                            <div className="grid grid-cols-2 gap-3"><button onClick={()=>handleAnkiChoice(0)} className="p-4 bg-red-50 text-red-500 rounded-2xl font-bold">모름</button><button onClick={()=>handleAnkiChoice(3)} className="p-4 bg-emerald-50 text-emerald-500 rounded-2xl font-bold">완벽</button></div>
                                         )}
                                     </div>
-                                ) : <div className="text-center font-black p-10 bg-white rounded-3xl border">단어가 없습니다.</div>}
+                                ) : <div className="text-center font-black p-10 bg-white rounded-3xl border">단어 없음</div>}
                             </div>
                         )}
 
@@ -293,7 +246,7 @@
                         )}
 
                         {page === 'dashboard' && (
-                            <div className="space-y-6 animate-fade">
+                            <div className="space-y-6 animate-fade text-center">
                                 <h2 className="text-2xl font-black italic">Writing Study</h2>
                                 <div className="grid gap-3">
                                     {Object.keys(CATS).map(c => (
