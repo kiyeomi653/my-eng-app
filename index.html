@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Wisdom AI - High Speed</title>
+    <title>Wisdom AI - Content Strategy Updated</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -24,13 +24,23 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
-        const POOL_KEY = 'wisdom_v4_pool';
+        const POOL_KEY = 'wisdom_v5_pool';
         
-        // 데이터가 없을 때를 대비한 즉시 실행용 로컬 백업 데이터
+        // --- 업데이트된 난이도 기준 백업 데이터 ---
         const BACKUP_QUOTES = {
-            Easy: [{def: "단순한 것이 최고다.", ex: "Simple is the best."}, {def: "지금 시작하세요.", ex: "Start right now."}],
-            Medium: [{def: "성공은 매일 반복되는 작은 노력의 합이다.", ex: "Success is the sum of small efforts repeated daily."}],
-            Hard: [{def: "당신이 할 수 있다고 믿든 할 수 없다고 믿든, 당신의 믿음대로 될 것이다.", ex: "Whether you think you can or you think you can't, you're right."}]
+            Easy: [
+                {def: "정말 고마워요.", ex: "Thank you so much."}, 
+                {def: "나중에 봐요.", ex: "See you later."},
+                {def: "무슨 일이에요?", ex: "What is going on?"}
+            ],
+            Medium: [
+                {def: "당신이 사랑하는 일을 하는 것이 중요합니다.", ex: "It is important to do what you love."},
+                {def: "실수는 배움의 과정 중 하나일 뿐입니다.", ex: "Mistakes are just part of the learning process."}
+            ],
+            Hard: [
+                {def: "당신이 할 수 있다고 믿든 할 수 없다고 믿든, 당신이 믿는 대로 될 것입니다.", ex: "Whether you think you can or you think you can't, you are right."},
+                {def: "미래는 자신의 꿈의 아름다움을 믿는 사람들의 것입니다.", ex: "The future belongs to those who believe in the beauty of their dreams."}
+            ]
         };
 
         function App() {
@@ -43,12 +53,10 @@
             const [pool, setPool] = useState(JSON.parse(localStorage.getItem(POOL_KEY)) || { Easy: [], Medium: [], Hard: [] });
             const [loadingState, setLoadingState] = useState({ Easy: false, Medium: false, Hard: false });
 
-            // 1. 데이터 저장
             useEffect(() => {
                 localStorage.setItem(POOL_KEY, JSON.stringify(pool));
             }, [pool]);
 
-            // 2. 초기 기동 시 데이터 자동 충전
             useEffect(() => {
                 if (user) fillAllPools();
             }, [user]);
@@ -61,9 +69,8 @@
                 window.speechSynthesis.speak(s);
             };
 
-            // 3. 고속 멀티 통로 API 엔진
+            // --- 수정된 데이터 필터링 로직 ---
             const fetchQuoteFromAPI = async (targetLevel) => {
-                // 여러 프록시를 교대로 사용하여 차단 회피
                 const proxies = [
                     (url) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
                     (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`
@@ -79,9 +86,12 @@
                     if(!rawData || !rawData.q) return null;
 
                     const wordCount = rawData.q.split(" ").length;
-                    const isMatch = (targetLevel === 'Easy' && wordCount <= 6) ||
-                                 (targetLevel === 'Medium' && wordCount >= 7 && wordCount <= 11) ||
-                                 (targetLevel === 'Hard' && wordCount >= 12);
+                    
+                    // 신규 난이도 기준 적용
+                    let isMatch = false;
+                    if (targetLevel === 'Easy') isMatch = (wordCount <= 6);
+                    else if (targetLevel === 'Medium') isMatch = (wordCount >= 7 && wordCount <= 12);
+                    else if (targetLevel === 'Hard') isMatch = (wordCount >= 13);
 
                     if (isMatch) {
                         const tRes = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(rawData.q)}`);
@@ -92,48 +102,39 @@
                 return null;
             };
 
-            // 4. 병렬 충전 로직 (속도 핵심)
             const fillAllPools = async () => {
                 ['Easy', 'Medium', 'Hard'].forEach(l => fillSpecificPool(l));
             };
 
             const fillSpecificPool = async (l) => {
                 if (loadingState[l] || (pool[l] && pool[l].length >= 10)) return;
-                
                 setLoadingState(prev => ({ ...prev, [l]: true }));
-                
-                // 동시에 3개씩 병렬 요청 (속도 향상)
                 const tasks = [fetchQuoteFromAPI(l), fetchQuoteFromAPI(l), fetchQuoteFromAPI(l)];
                 const results = await Promise.all(tasks);
-                
                 const validQuotes = results.filter(q => q !== null);
                 if (validQuotes.length > 0) {
                     setPool(prev => ({ ...prev, [l]: [...(prev[l] || []), ...validQuotes].slice(0, 15) }));
                 }
-                
                 setLoadingState(prev => ({ ...prev, [l]: false }));
             };
 
             const getNextQuote = (targetLevel) => {
-                // 1. 복습 (10%)
                 if (history.length > 5 && Math.random() < 0.1) {
                     const rev = history[Math.floor(Math.random() * history.length)];
                     setCurrentQuote({ def: rev.def, ex: rev.quote, isReview: true });
                     return;
                 }
 
-                // 2. 풀에서 즉시 추출
                 if (pool[targetLevel] && pool[targetLevel].length > 0) {
                     const next = pool[targetLevel][0];
                     setCurrentQuote({ ...next, isReview: false });
                     setPool(prev => ({ ...prev, [targetLevel]: prev[targetLevel].slice(1) }));
-                    fillSpecificPool(targetLevel); // 사용 즉시 하나 더 보충
+                    fillSpecificPool(targetLevel);
                 } else {
-                    // 3. 풀이 비었으면 백업 데이터 즉시 사용 (로딩 지연 방지)
                     const backups = BACKUP_QUOTES[targetLevel];
                     const randBackup = backups[Math.floor(Math.random() * backups.length)];
                     setCurrentQuote({ ...randBackup, isReview: false });
-                    fillSpecificPool(targetLevel); // 백그라운드에서 진짜 데이터 충전 시도
+                    fillSpecificPool(targetLevel);
                 }
             };
 
@@ -142,8 +143,8 @@
                     <div className="min-h-screen flex items-center justify-center bg-indigo-600 p-6">
                         <div className="bg-white p-10 rounded-[3rem] w-full max-w-xs shadow-2xl text-center">
                             <h1 className="text-3xl font-black text-indigo-600 mb-2 italic">Wisdom AI</h1>
-                            <p className="text-slate-400 text-xs mb-8 font-bold">SMART ENGLISH TUTOR</p>
-                            <input id="u_name" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl mb-4 font-bold outline-none text-center" placeholder="Name" onKeyDown={(e)=>e.key==='Enter'&&setUser(e.target.value)} />
+                            <p className="text-slate-400 text-xs mb-8 font-bold uppercase">Personal English Lab</p>
+                            <input id="u_name" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl mb-4 font-bold outline-none text-center" placeholder="이름 입력" onKeyDown={(e)=>e.key==='Enter'&&setUser(e.target.value)} />
                             <button onClick={() => {const v=document.getElementById('u_name').value; if(v) setUser(v)}} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg btn-active">시작하기</button>
                         </div>
                     </div>
@@ -178,7 +179,7 @@
                             <div className="space-y-6 animate-fade">
                                 <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
                                     <div className="flex justify-between items-center mb-4 px-1">
-                                        <h3 className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Difficulty</h3>
+                                        <h3 className="text-[10px] font-black text-slate-300 uppercase tracking-widest text-center">난이도별 특징</h3>
                                         <span className="flex gap-1">
                                             {['Easy', 'Medium', 'Hard'].map(l => (
                                                 <div key={l} className={`w-1.5 h-1.5 rounded-full ${loadingState[l] ? 'bg-indigo-400 animate-ping' : pool[l]?.length > 0 ? 'bg-emerald-400' : 'bg-slate-200'}`}></div>
@@ -187,8 +188,11 @@
                                     </div>
                                     <div className="grid grid-cols-3 gap-2">
                                         {['Easy', 'Medium', 'Hard'].map(l => (
-                                            <button key={l} onClick={() => {setLevel(l); getNextQuote(l)}} className={`py-4 rounded-2xl font-black text-xs transition-all btn-active border-2 ${level === l ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-100 text-slate-400'}`}>
-                                                {l === 'Easy' ? '초급' : l === 'Medium' ? '중급' : '고급'}
+                                            <button key={l} onClick={() => {setLevel(l); getNextQuote(l)}} className={`py-4 rounded-2xl font-black text-[10px] transition-all btn-active border-2 flex flex-col items-center gap-1 ${level === l ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-100 text-slate-400'}`}>
+                                                <span>{l === 'Easy' ? '초급' : l === 'Medium' ? '중급' : '고급'}</span>
+                                                <span className="opacity-60 font-medium">
+                                                    {l === 'Easy' ? '~6단어' : l === 'Medium' ? '7~12단어' : '13단어~'}
+                                                </span>
                                             </button>
                                         ))}
                                     </div>
@@ -199,9 +203,9 @@
                                         <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
                                         <div className="flex justify-between items-center relative z-10">
                                             <span className="text-[10px] font-black bg-white/20 px-3 py-1 rounded-full uppercase tracking-tighter">
-                                                {currentQuote.isReview ? 'Review' : `${level} Ready`}
+                                                {currentQuote.isReview ? 'Review' : `${level} Mode`}
                                             </span>
-                                            <button onClick={() => getNextQuote(level)} className="p-2 hover:rotate-180 transition-transform duration-500"><i data-lucide="rotate-cw" size="18"></i></button>
+                                            <button onClick={() => getNextQuote(level)} className="p-2"><i data-lucide="rotate-cw" size="18"></i></button>
                                         </div>
                                         <h2 className="text-2xl font-black leading-tight italic my-8 z-10">"{currentQuote.def}"</h2>
                                         <button onClick={() => setPage('quiz')} className="bg-white text-indigo-600 w-full py-4 rounded-2xl font-black shadow-lg btn-active z-10">트레이닝 시작</button>
@@ -226,8 +230,8 @@
 
                         {page === 'history' && (
                             <div className="space-y-4 animate-fade">
-                                <h2 className="text-2xl font-black mb-6 px-2">Learning Records</h2>
-                                {history.length === 0 ? <div className="py-20 text-center text-slate-300 font-bold">기록이 아직 없습니다.</div> :
+                                <h2 className="text-2xl font-black mb-6 px-2">Records</h2>
+                                {history.length === 0 ? <div className="py-20 text-center text-slate-300 font-bold">기록이 없습니다.</div> :
                                 history.map((h, i) => (
                                     <div key={i} className="bg-white p-5 rounded-[2rem] border border-slate-100 flex justify-between items-center shadow-sm">
                                         <div className="flex-1 pr-4">
@@ -242,25 +246,19 @@
 
                         {page === 'db_status' && (
                             <div className="space-y-6 animate-fade">
-                                <div className="flex justify-between items-end px-2">
-                                    <h2 className="text-2xl font-black">Database</h2>
-                                    <button onClick={fillAllPools} className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full">강제 재충전</button>
-                                </div>
+                                <h2 className="text-2xl font-black px-2">Pool Status</h2>
                                 {['Easy', 'Medium', 'Hard'].map(l => (
                                     <div key={l} className="bg-white p-6 rounded-[2.5rem] border border-slate-100">
-                                        <div className="flex justify-between items-center mb-4">
-                                            <span className="font-black text-lg">{l}</span>
-                                            <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${pool[l]?.length > 0 ? 'bg-emerald-50 text-emerald-500' : 'bg-red-50 text-red-400'}`}>
-                                                {pool[l]?.length || 0} 문장 확보됨
-                                            </span>
+                                        <div className="flex justify-between items-center mb-4 font-black">
+                                            <span>{l === 'Easy' ? '초급 (일상)' : l === 'Medium' ? '중급 (혼합)' : '고급 (명언)'}</span>
+                                            <span className="text-xs text-indigo-400">{pool[l]?.length || 0}</span>
                                         </div>
                                         <div className="space-y-2">
-                                            {(pool[l] || []).map((q, idx) => (
-                                                <div key={idx} className="text-[10px] p-3 bg-slate-50 rounded-xl text-slate-500 line-clamp-2">
-                                                    <strong>{idx+1}.</strong> {q.def}
+                                            {(pool[l] || []).slice(0, 3).map((q, idx) => (
+                                                <div key={idx} className="text-[10px] p-3 bg-slate-50 rounded-xl text-slate-400 line-clamp-1 italic">
+                                                    "{q.ex}"
                                                 </div>
                                             ))}
-                                            {loadingState[l] && <div className="h-10 shimmer rounded-xl w-full"></div>}
                                         </div>
                                     </div>
                                 ))}
@@ -294,9 +292,9 @@
                     </div>
                     <h3 className="text-xl font-black mb-6 italic text-slate-800 leading-tight">"{q.def}"</h3>
                     <div className="mb-6 p-4 bg-slate-50 rounded-2xl flex flex-wrap gap-2">
-                        {shuffledWords.map((w, i) => <span key={i} className="text-[10px] font-bold bg-white px-2 py-1 rounded-lg border border-slate-100 text-slate-400 uppercase tracking-tighter shadow-sm">{w}</span>)}
+                        {shuffledWords.map((w, i) => <span key={i} className="text-[10px] font-bold bg-white px-2 py-1 rounded-lg border border-slate-100 text-slate-400 uppercase tracking-tighter">{w}</span>)}
                     </div>
-                    <textarea value={input} onChange={e => setInput(e.target.value)} className="w-full h-40 p-5 bg-slate-50 rounded-[2rem] mb-4 outline-none text-lg font-medium resize-none border-2 border-transparent focus:border-indigo-100 transition-all" placeholder="영어로 작성하세요..." />
+                    <textarea value={input} onChange={e => setInput(e.target.value)} className="w-full h-40 p-5 bg-slate-50 rounded-[2rem] mb-4 outline-none text-lg font-medium resize-none border-2 border-transparent focus:border-indigo-100 transition-all" placeholder="영작 시작..." />
                     {!checked ? (
                         <button onClick={check} className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black shadow-lg btn-active">정답 확인</button>
                     ) : (
