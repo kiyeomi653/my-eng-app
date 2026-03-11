@@ -18,6 +18,8 @@
         table { width: 100%; border-collapse: collapse; font-size: 11px; }
         th, td { padding: 10px; border-bottom: 1px solid #f1f5f9; text-align: left; }
         th { background-color: #f8fafc; color: #64748b; font-weight: 900; }
+        .tooltip-box { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #1e293b; color: white; padding: 4px 8px; border-radius: 8px; font-size: 10px; white-space: nowrap; z-index: 100; margin-bottom: 5px; }
+        .tooltip-box::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #1e293b; }
     </style>
 </head>
 <body>
@@ -25,7 +27,7 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-        const POOL_KEY = 'Writing_v4_priority_pool';
+        const POOL_KEY = 'Writing_v5_hint_pool';
         const USER_DB_KEY = 'Writing_user_registry';
         const CATS = { Daily: "일상 대화", Wisdom: "명언과 격언", Cinema: "영화 대사" };
 
@@ -43,32 +45,20 @@
             useEffect(() => { localStorage.setItem(POOL_KEY, JSON.stringify(pool)); }, [pool]);
             useEffect(() => { localStorage.setItem(USER_DB_KEY, JSON.stringify(userRegistry)); }, [userRegistry]);
 
-            // [핵심] 우선순위 자동 충전 로직 (5초마다 실행)
             useEffect(() => {
                 if (user) {
                     const autoFillManager = async () => {
-                        // 1. 5개 이하인 카테고리 먼저 찾기
                         const urgentCats = Object.keys(CATS).filter(c => (pool[c]?.length || 0) <= 5 && !loadingState[c]);
-                        
-                        // 2. 급한 카테고리부터 순차적으로 병렬 충전 시작
-                        for (const cat of urgentCats) {
-                            await fillSpecificPool(cat);
-                        }
-
-                        // 3. 급한 게 없으면 여유분(15개 미만) 채우기
+                        for (const cat of urgentCats) await fillSpecificPool(cat);
                         const normalCats = Object.keys(CATS).filter(c => (pool[c]?.length || 0) < 15 && !loadingState[c]);
-                        for (const cat of normalCats) {
-                            fillSpecificPool(cat); 
-                        }
+                        for (const cat of normalCats) fillSpecificPool(cat); 
                     };
-
                     autoFillManager();
                     const timer = setInterval(autoFillManager, 5000); 
                     return () => clearInterval(timer);
                 }
             }, [user, pool, loadingState]);
 
-            // 접속 기록 로직
             useEffect(() => {
                 if (user) {
                     const now = new Date().toLocaleString();
@@ -106,7 +96,7 @@
                     localStorage.removeItem(`writingHistory_${name}`);
                     if (user === name) { localStorage.removeItem('currentUser'); setUser(''); }
                     alert("삭제 완료");
-                } else if (pw !== null) alert("불일치");
+                } else if (pw !== null) alert("비밀번호 불일치");
             };
 
             const fetchQuoteFromAPI = async (cat) => {
@@ -134,12 +124,9 @@
                 return null;
             };
 
-            // [핵심] 고속 병렬 충전 함수
             const fillSpecificPool = async (cat) => {
                 if (loadingState[cat] || (pool[cat]?.length >= 20)) return;
                 setLoadingState(p => ({ ...p, [cat]: true }));
-                
-                // 5개 동시 요청
                 const batch = Array.from({ length: 5 }, () => fetchQuoteFromAPI(cat));
                 try {
                     const results = await Promise.all(batch);
@@ -226,9 +213,7 @@
                                 <h2 className="text-2xl font-black mb-6">Records</h2>
                                 {history.map((h, i) => (
                                     <div key={i} className="bg-white p-5 rounded-[2rem] border flex justify-between items-center shadow-sm">
-                                        <div className="flex-1 pr-4">
-                                            <p className="text-sm font-bold text-slate-800">"{h.def}"</p>
-                                        </div>
+                                        <div className="flex-1 pr-4"><p className="text-sm font-bold text-slate-800">"{h.def}"</p></div>
                                         <button onClick={()=>speak(h.quote)} className="p-3 text-indigo-400 bg-indigo-50 rounded-2xl"><i data-lucide="volume-2" size="20"></i></button>
                                     </div>
                                 ))}
@@ -258,7 +243,7 @@
                                     <button onClick={()=>setPage('admin_home')}><i data-lucide="arrow-left"></i></button>
                                     <h2 className="text-xl font-black">학습자 관리</h2>
                                 </div>
-                                <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden overflow-x-auto">
+                                <div className="bg-white rounded-[2rem] border shadow-sm overflow-x-auto">
                                     <table>
                                         <thead><tr><th>학습자</th><th>접속 시간</th><th>나간 시간</th><th>관리</th></tr></thead>
                                         <tbody>
@@ -290,7 +275,7 @@
                                                 {loadingState[c]?'충전중':'수동 충전'}
                                             </button>
                                         </div>
-                                        <div className="text-xs text-slate-400 font-bold italic">현재 보관량: {pool[c]?.length || 0}개</div>
+                                        <div className="text-xs text-slate-400 font-bold italic">보관량: {pool[c]?.length || 0}개</div>
                                     </div>
                                 ))}
                             </div>
@@ -301,10 +286,14 @@
             );
         }
 
+        // --- 수정된 퀴즈 컴포넌트 ---
         function QuizView({ q, onNext, onFinish, speak, onHome }) {
             const [input, setInput] = useState('');
             const [checked, setChecked] = useState(false);
+            const [hintOpen, setHintOpen] = useState(false);
+            const [activeTooltip, setActiveTooltip] = useState(null);
             const [result, setResult] = useState([]);
+
             const shuffledWords = useMemo(() => q?.ex.replace(/[.,!;?]/g, "").split(" ").sort(() => Math.random() - 0.5) || [], [q]);
 
             const check = () => {
@@ -315,22 +304,63 @@
                 setResult(diff); setChecked(true); speak(q.ex);
             };
 
+            const toggleTooltip = async (word, index) => {
+                if (activeTooltip === index) { setActiveTooltip(null); return; }
+                try {
+                    const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(word)}`);
+                    const data = await res.json();
+                    setActiveTooltip({ index, meaning: data[0][0][0] });
+                } catch (e) {
+                    setActiveTooltip({ index, meaning: "뜻 찾기 실패" });
+                }
+            };
+
             return (
-                <div className="bg-white p-7 rounded-[3rem] border shadow-sm animate-fade">
-                    <h3 className="text-xl font-black mb-6 italic text-slate-800">"{q.def}"</h3>
-                    <div className="mb-6 flex flex-wrap gap-2 text-[10px] font-bold text-slate-400">
-                        {shuffledWords.map((w, i) => <span key={i} className="bg-slate-50 px-2 py-1 rounded-lg border">{w}</span>)}
+                <div className="bg-white p-7 rounded-[3rem] border shadow-sm animate-fade relative" onClick={() => setActiveTooltip(null)}>
+                    <div className="flex justify-between items-center mb-4">
+                        <button onClick={onHome} className="text-slate-300"><i data-lucide="chevron-left"></i></button>
+                        <span className="text-[10px] font-black text-indigo-400 tracking-widest uppercase">Quiz Mode</span>
                     </div>
+                    
+                    <h3 className="text-xl font-black mb-6 italic text-slate-800 leading-tight">"{q.def}"</h3>
+                    
+                    {/* 힌트 버튼 및 단어장 */}
+                    {!checked && (
+                        <div className="mb-4">
+                            {!hintOpen ? (
+                                <button onClick={() => setHintOpen(true)} className="flex items-center gap-2 text-[10px] font-black text-indigo-500 bg-indigo-50 px-4 py-2 rounded-xl btn-active">
+                                    <i data-lucide="lightbulb" size="14"></i> 힌트 보기
+                                </button>
+                            ) : (
+                                <div className="bg-slate-50 p-4 rounded-2xl flex flex-wrap gap-2 animate-fade">
+                                    {shuffledWords.map((w, i) => (
+                                        <div key={i} className="relative">
+                                            {activeTooltip?.index === i && <div className="tooltip-box">{activeTooltip.meaning}</div>}
+                                            <span 
+                                                onClick={(e) => { e.stopPropagation(); toggleTooltip(w, i); }}
+                                                className="bg-white px-2 py-1 rounded-lg border border-slate-100 text-[10px] font-bold text-slate-400 cursor-pointer hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                                            >
+                                                {w}
+                                            </span>
+                                        </div>
+                                    ))}
+                                    <button onClick={() => setHintOpen(false)} className="text-[10px] font-black text-slate-300 ml-auto">숨기기</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <textarea value={input} onChange={e => setInput(e.target.value)} className="w-full h-40 p-5 bg-slate-50 rounded-[2rem] mb-4 outline-none text-lg font-medium resize-none shadow-inner" placeholder="영작을 입력하세요..." />
+                    
                     {!checked ? (
                         <button onClick={check} className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black shadow-lg btn-active">정답 확인</button>
                     ) : (
                         <div className="space-y-4 animate-fade">
-                            <div className="p-5 bg-indigo-50 rounded-[2rem] border flex justify-between items-center">
+                            <div className="p-5 bg-indigo-50 rounded-[2rem] border border-indigo-100 flex justify-between items-center">
                                 <p className="text-indigo-900 font-bold text-sm">"{q.ex}"</p>
                                 <button onClick={()=>speak(q.ex)} className="text-indigo-600 p-2"><i data-lucide="volume-2"></i></button>
                             </div>
-                            <button onClick={()=>{setChecked(false); setInput(''); onNext()}} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black btn-active">다음 문장</button>
+                            <button onClick={()=>{setChecked(false); setInput(''); setHintOpen(false); onNext()}} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black btn-active">다음 문장</button>
                         </div>
                     )}
                 </div>
