@@ -27,8 +27,9 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-        const POOL_KEY = 'Writing_v7_final_pool';
-        const USER_DB_KEY = 'Writing_user_registry_v7';
+        // 키 이름을 고정하여 코드 수정 시에도 데이터가 유지되도록 함
+        const POOL_KEY = 'Writing_Permanent_Pool_Storage';
+        const USER_DB_KEY = 'Writing_Permanent_User_Registry';
         const CATS = { Daily: "일상 대화", Wisdom: "명언과 격언", Cinema: "영화 대사" };
 
         function App() {
@@ -46,15 +47,15 @@
             useEffect(() => { localStorage.setItem(POOL_KEY, JSON.stringify(pool)); }, [pool]);
             useEffect(() => { localStorage.setItem(USER_DB_KEY, JSON.stringify(userRegistry)); }, [userRegistry]);
 
-            // 접속 기록 업데이트
             useEffect(() => {
                 if (user) {
                     const now = new Date().toLocaleString();
                     setUserRegistry(prev => {
                         const exists = prev.find(u => u.name === user);
                         if (exists) {
-                            const newLog = { in: now, out: '접속 중...' };
-                            return prev.map(u => u.name === user ? { ...u, isOnline: true, logs: [newLog, ...(u.logs || [])].slice(0, 50) } : u);
+                            const hasActiveLog = exists.logs?.[0]?.out === '접속 중...';
+                            if (hasActiveLog) return prev.map(u => u.name === user ? { ...u, isOnline: true } : u);
+                            return prev.map(u => u.name === user ? { ...u, isOnline: true, logs: [{ in: now, out: '접속 중...' }, ...(u.logs || [])].slice(0, 50) } : u);
                         }
                         return [...prev, { name: user, isOnline: true, logs: [{ in: now, out: '접속 중...' }] }];
                     });
@@ -63,9 +64,11 @@
                         const db = JSON.parse(localStorage.getItem(USER_DB_KEY)) || [];
                         const updated = db.map(u => {
                             if (u.name === user) {
-                                const lastLog = u.logs?.[0];
-                                if (lastLog) lastLog.out = new Date().toLocaleString();
-                                return { ...u, isOnline: false };
+                                const newLogs = [...(u.logs || [])];
+                                if (newLogs[0] && newLogs[0].out === '접속 중...') {
+                                    newLogs[0] = { ...newLogs[0], out: new Date().toLocaleString() };
+                                }
+                                return { ...u, isOnline: false, logs: newLogs };
                             }
                             return u;
                         });
@@ -75,6 +78,24 @@
                     return () => window.removeEventListener('beforeunload', handleUnload);
                 }
             }, [user]);
+
+            const generateAIDaily = async () => {
+                const templates = [
+                    { q: "How are you doing today?", a: "오늘 하루 어떻게 지내고 있니?" },
+                    { q: "What time shall we meet?", a: "우리 몇 시에 만날까?" },
+                    { q: "I'm going to the library now.", a: "나는 지금 도서관에 가는 길이야." },
+                    { q: "Do you have any plans for tonight?", a: "오늘 밤에 무슨 계획 있니?" },
+                    { q: "That sounds like a great idea.", a: "그거 정말 좋은 생각인 것 같아." },
+                    { q: "I need to buy some milk.", a: "우유를 좀 사야 해." },
+                    { q: "Where is the nearest subway station?", a: "가장 가까운 지하철역이 어디인가요?" },
+                    { q: "Can you help me with this?", a: "이것 좀 도와줄 수 있니?" },
+                    { q: "It's a beautiful day, isn't it?", a: "정말 아름다운 날이야, 그렇지 않니?" },
+                    { q: "I hope you have a nice weekend.", a: "네가 멋진 주말을 보내길 바라." }
+                ];
+                const selected = templates.sort(() => 0.5 - Math.random()).slice(0, 5);
+                const results = selected.map(t => ({ def: t.a, ex: t.q, id: Date.now() + Math.random() }));
+                setPool(p => ({ ...p, Daily: [...(p.Daily || []), ...results].slice(0, 25) }));
+            };
 
             const fetchQuoteFromAPI = async (cat) => {
                 const cb = Math.random().toString(36).substring(7);
@@ -89,7 +110,6 @@
                     if (cat === 'Daily') isMatch = (wordCount <= 7);
                     else if (cat === 'Wisdom') isMatch = (wordCount >= 8);
                     else if (cat === 'Cinema') isMatch = (wordCount >= 4 && wordCount <= 13);
-
                     if (isMatch) {
                         const tRes = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(raw.q)}`);
                         const tData = await tRes.json();
@@ -102,7 +122,12 @@
             const fillSpecificPool = async (cat) => {
                 if (loadingState[cat] || (pool[cat]?.length >= 20)) return;
                 setLoadingState(p => ({ ...p, [cat]: true }));
-                const batch = Array.from({ length: 5 }, () => fetchQuoteFromAPI(cat));
+                if (cat === 'Daily') {
+                    await generateAIDaily();
+                    setLoadingState(p => ({ ...p, [cat]: false }));
+                    return;
+                }
+                const batch = Array.from({ length: 4 }, () => fetchQuoteFromAPI(cat));
                 try {
                     const results = await Promise.all(batch);
                     const valid = results.filter(q => q !== null);
@@ -110,20 +135,28 @@
                 } finally { setLoadingState(p => ({ ...p, [cat]: false })); }
             };
 
-            // 자동 충전 및 우선순위 로직
+            // 초기화 함수들
+            const resetCategory = (cat) => {
+                if(prompt("비밀번호를 입력하세요.") === "1234") {
+                    setPool(p => ({ ...p, [cat]: [] }));
+                    alert(`${CATS[cat]} DB가 초기화되었습니다.`);
+                } else { alert("비밀번호가 틀렸습니다."); }
+            };
+
+            const resetAllDB = () => {
+                if(prompt("모든 데이터를 삭제하시겠습니까? 비밀번호를 입력하세요.") === "1234") {
+                    setPool({ Daily: [], Wisdom: [], Cinema: [] });
+                    setUserRegistry([]);
+                    alert("전체 DB가 초기화되었습니다.");
+                } else { alert("비밀번호가 틀렸습니다."); }
+            };
+
             useEffect(() => {
                 if (user) {
-                    const autoFill = async () => {
-                        const urgent = Object.keys(CATS).filter(c => (pool[c]?.length || 0) <= 5 && !loadingState[c]);
-                        for (const c of urgent) await fillSpecificPool(c);
-                        const normal = Object.keys(CATS).filter(c => (pool[c]?.length || 0) < 15 && !loadingState[c]);
-                        for (const c of normal) fillSpecificPool(c);
-                    };
-                    autoFill();
-                    const itv = setInterval(autoFill, 5000);
-                    return () => clearInterval(itv);
+                    const tick = () => Object.keys(CATS).forEach(c => { if ((pool[c]?.length || 0) < 5) fillSpecificPool(c); });
+                    tick(); const itv = setInterval(tick, 10000); return () => clearInterval(itv);
                 }
-            }, [user, pool, loadingState]);
+            }, [user, pool]);
 
             const speak = (t) => { if(!t) return; window.speechSynthesis.cancel(); const s = new SpeechSynthesisUtterance(t); s.lang = 'en-US'; s.rate = 0.9; window.speechSynthesis.speak(s); };
 
@@ -149,14 +182,9 @@
                             <div className="absolute right-4 top-20 w-60 bg-white rounded-[2.5rem] p-6 shadow-2xl space-y-2" onClick={e=>e.stopPropagation()}>
                                 <div onClick={()=>{setPage('dashboard');setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="home"></i> 홈</div>
                                 <div onClick={()=>{setPage('history');setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="award"></i> 기록</div>
-                                <div onClick={()=>{
-                                    const pw = prompt("비밀번호");
-                                    if(pw==='1234'){setPage('admin_home');setMenuOpen(false);}
-                                }} className="flex items-center gap-4 p-4 font-bold text-indigo-600 hover:bg-indigo-50 rounded-2xl cursor-pointer"><i data-lucide="shield"></i> 관리자 설정</div>
+                                <div onClick={()=>{const pw = prompt("비밀번호"); if(pw==='1234'){setPage('admin_home');setMenuOpen(false);}}} className="flex items-center gap-4 p-4 font-bold text-indigo-600 hover:bg-indigo-50 rounded-2xl cursor-pointer"><i data-lucide="shield"></i> 관리자 설정</div>
                                 <hr />
-                                <div onClick={()=>{
-                                    localStorage.removeItem('currentUser'); location.reload();
-                                }} className="flex items-center gap-4 p-4 font-bold text-red-400 hover:bg-red-50 rounded-2xl cursor-pointer"><i data-lucide="log-out"></i> 로그아웃</div>
+                                <div onClick={()=>{localStorage.removeItem('currentUser'); location.reload();}} className="flex items-center gap-4 p-4 font-bold text-red-400 hover:bg-red-50 rounded-2xl cursor-pointer"><i data-lucide="log-out"></i> 로그아웃</div>
                             </div>
                         </div>
                     )}
@@ -193,27 +221,27 @@
 
                         {page === 'history' && (
                             <div className="space-y-4 animate-fade">
-                                <h2 className="text-2xl font-black mb-6">Records</h2>
+                                <h2 className="text-2xl font-black mb-6 px-2 italic">Records</h2>
                                 {history.map((h, i) => (
                                     <div key={i} className="bg-white p-5 rounded-[2rem] border flex justify-between items-center shadow-sm">
                                         <div className="flex-1 pr-4 font-bold text-sm">"{h.def}"</div>
                                         <button onClick={()=>speak(h.quote)} className="p-3 text-indigo-400 bg-indigo-50 rounded-2xl"><i data-lucide="volume-2" size="20"></i></button>
                                     </div>
                                 ))}
+                                {history.length === 0 && <div className="text-center p-20 text-slate-300 font-bold">기록이 없습니다.</div>}
                             </div>
                         )}
 
-                        {/* 관리자 홈 복원 */}
                         {page === 'admin_home' && (
                             <div className="space-y-6 animate-fade">
-                                <h2 className="text-2xl font-black px-2 flex items-center gap-2">Admin Panel</h2>
+                                <h2 className="text-2xl font-black px-2 flex items-center gap-2 italic text-indigo-600">Admin Panel</h2>
                                 <div className="grid gap-4">
                                     <button onClick={()=>setPage('admin_learners')} className="bg-white p-6 rounded-[2rem] border shadow-sm flex items-center justify-between btn-active">
                                         <div className="flex items-center gap-4 font-black"><i data-lucide="users" className="text-indigo-600"></i> 학습자 기록 관리</div>
                                         <i data-lucide="chevron-right"></i>
                                     </button>
                                     <button onClick={()=>setPage('admin_db')} className="bg-white p-6 rounded-[2rem] border shadow-sm flex items-center justify-between btn-active">
-                                        <div className="flex items-center gap-4 font-black"><i data-lucide="database" className="text-indigo-600"></i> DB 상태 관리</div>
+                                        <div className="flex items-center gap-4 font-black"><i data-lucide="database" className="text-indigo-600"></i> DB 상태 및 초기화</div>
                                         <i data-lucide="chevron-right"></i>
                                     </button>
                                 </div>
@@ -221,7 +249,6 @@
                             </div>
                         )}
 
-                        {/* 학습자 관리 페이지 */}
                         {page === 'admin_learners' && (
                             <div className="space-y-4 animate-fade">
                                 <div className="flex items-center gap-4 mb-6">
@@ -238,53 +265,55 @@
                                             <div className="text-[10px] font-bold text-slate-400">{u.isOnline ? '접속 중' : '오프라인'}</div>
                                         </div>
                                     ))}
-                                    {userRegistry.length === 0 && <div className="p-10 text-center text-slate-300">기록이 없습니다.</div>}
                                 </div>
                             </div>
                         )}
 
-                        {/* DB 관리 페이지 복원 */}
                         {page === 'admin_db' && (
                             <div className="space-y-6 animate-fade">
                                 <div className="flex items-center gap-4 px-2">
                                     <button onClick={()=>setPage('admin_home')}><i data-lucide="arrow-left"></i></button>
-                                    <h2 className="text-xl font-black">Database Status</h2>
+                                    <h2 className="text-xl font-black">Database Control</h2>
                                 </div>
                                 {Object.keys(CATS).map(c => (
                                     <div key={c} className="bg-white p-6 rounded-[2.5rem] border shadow-sm">
                                         <div className="flex justify-between items-center mb-4">
-                                            <span className="font-black text-lg">{CATS[c]}</span>
-                                            <button onClick={()=>fillSpecificPool(c)} className={`text-[10px] font-black px-4 py-2 rounded-xl ${loadingState[c]?'bg-slate-100 text-slate-400':'bg-indigo-600 text-white btn-active'}`}>
-                                                {loadingState[c]?'충전중':'수동 충전'}
-                                            </button>
+                                            <div className="flex flex-col">
+                                                <span className="font-black text-lg">{CATS[c]}</span>
+                                                <span className="text-[10px] text-slate-400 font-bold italic">보관량: {pool[c]?.length || 0}개</span>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button onClick={()=>resetCategory(c)} className="text-[10px] font-black px-4 py-2 bg-red-50 text-red-500 rounded-xl">초기화</button>
+                                                <button onClick={()=>fillSpecificPool(c)} className={`text-[10px] font-black px-4 py-2 rounded-xl transition-all ${loadingState[c]?'bg-slate-100 text-slate-400':'bg-indigo-600 text-white btn-active shadow-md'}`}>
+                                                    {loadingState[c]?'충전중...':'불러오기'}
+                                                </button>
+                                            </div>
                                         </div>
-                                        <div className="text-xs text-slate-400 font-bold italic">현재 보관량: {pool[c]?.length || 0}개</div>
                                     </div>
                                 ))}
+                                <button onClick={resetAllDB} className="w-full py-5 bg-red-500 text-white rounded-[2rem] font-black shadow-xl btn-active mt-10">전체 DB 초기화</button>
                             </div>
                         )}
                     </main>
 
-                    {/* 학습자 상세 로그 팝업 */}
                     {selectedLearner && (
                         <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-4 animate-fade" onClick={()=>setSelectedLearner(null)}>
-                            <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 max-h-[80vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+                            <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 max-h-[80vh] overflow-y-auto shadow-2xl" onClick={e=>e.stopPropagation()}>
                                 <div className="flex justify-between items-center mb-6">
-                                    <h3 className="font-black text-xl">{selectedLearner.name}의 기록</h3>
+                                    <h3 className="font-black text-xl italic">{selectedLearner.name} Logs</h3>
                                     <button onClick={()=>setSelectedLearner(null)} className="p-2 bg-slate-100 rounded-full"><i data-lucide="x" size="18"></i></button>
                                 </div>
                                 <table>
-                                    <thead><tr><th>접속 시각</th><th>종료 시각</th></tr></thead>
+                                    <thead><tr><th>접속 시각</th><th>나간 시각</th></tr></thead>
                                     <tbody>
                                         {selectedLearner.logs?.map((l,idx)=>(
-                                            <tr key={idx}><td>{l.in}</td><td className={l.out==='접속 중...'?'text-emerald-500 font-bold':''}>{l.out}</td></tr>
+                                            <tr key={idx}>
+                                                <td className="text-slate-500 font-medium">{l.in}</td>
+                                                <td className={l.out==='접속 중...'?'text-emerald-500 font-black animate-pulse':'text-slate-400 font-medium'}>{l.out}</td>
+                                            </tr>
                                         ))}
                                     </tbody>
                                 </table>
-                                <button onClick={()=>{
-                                    const pw = prompt("삭제하시겠습니까? (비밀번호)");
-                                    if(pw==='1234'){ setUserRegistry(prev=>prev.filter(u=>u.name!==selectedLearner.name)); setSelectedLearner(null); }
-                                }} className="w-full mt-8 py-4 bg-red-50 text-red-500 rounded-2xl font-black">학습자 삭제</button>
                             </div>
                         </div>
                     )}
