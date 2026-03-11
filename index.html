@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Writing</title>
+    <title>Writing & Vocab</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -31,9 +31,17 @@
         const USER_DB_KEY = 'Writing_Permanent_User_Registry';
         const CATS = { Daily: "일상 대화", Wisdom: "명언과 격언", Cinema: "영화 대사" };
 
+        const BIBLE_VERSES = [
+            { ref: "Galatians 2:20", text: "I have been crucified with Christ and I no longer live, but Christ lives in me." },
+            { ref: "Romans 12:1", text: "Therefore, I urge you, brothers and sisters, in view of God’s mercy, to offer your bodies as a living sacrifice." },
+            { ref: "Matthew 6:33", text: "But seek first his kingdom and his righteousness, and all these things will be given to you as well." },
+            { ref: "Philippians 4:6", text: "Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God." },
+            { ref: "Joshua 1:8", text: "Keep this Book of the Law always on your lips; meditate on it day and night." }
+        ];
+
         function App() {
             const [user, setUser] = useState(localStorage.getItem('currentUser') || '');
-            const [page, setPage] = useState('dashboard');
+            const [page, setPage] = useState('home');
             const [menuOpen, setMenuOpen] = useState(false);
             const [category, setCategory] = useState(null);
             const [currentQuote, setCurrentQuote] = useState(null);
@@ -42,6 +50,11 @@
             const [loadingState, setLoadingState] = useState({ Daily: false, Wisdom: false, Cinema: false });
             const [userRegistry, setUserRegistry] = useState(() => JSON.parse(localStorage.getItem(USER_DB_KEY)) || []);
             const [selectedLearner, setSelectedLearner] = useState(null);
+            const [bibleVerse] = useState(() => BIBLE_VERSES[Math.floor(Math.random() * BIBLE_VERSES.length)]);
+
+            // 단어 학습 관련 상태
+            const [vocabCard, setVocabCard] = useState(null);
+            const [showVocabAns, setShowVocabAns] = useState(false);
 
             useEffect(() => { localStorage.setItem(POOL_KEY, JSON.stringify(pool)); }, [pool]);
             useEffect(() => { localStorage.setItem(USER_DB_KEY, JSON.stringify(userRegistry)); }, [userRegistry]);
@@ -78,22 +91,43 @@
                 }
             }, [user]);
 
+            // 단어 생성 AI (시뮬레이션)
+            const getNextVocab = () => {
+                const vocabs = [
+                    { en: "Consistent", ko: "일관된", ex: "He is consistent in his hard work." },
+                    { en: "Inspiration", ko: "영감", ex: "Nature is a great source of inspiration." },
+                    { en: "Prioritize", ko: "우선순위를 정하다", ex: "You should prioritize your health." },
+                    { en: "Ambitious", ko: "야심 있는", ex: "The plan was very ambitious." },
+                    { en: "Essential", ko: "필수적인", ex: "Water is essential for life." }
+                ];
+                const selected = vocabs[Math.floor(Math.random() * vocabs.length)];
+                setVocabCard({ ...selected, mode: Math.random() > 0.5 ? 'en-to-ko' : 'ko-to-en' });
+                setShowVocabAns(false);
+            };
+
             const generateAIDaily = async () => {
                 const templates = [
                     { q: "How are you doing today?", a: "오늘 하루 어떻게 지내고 있니?" },
                     { q: "What time shall we meet?", a: "우리 몇 시에 만날까?" },
                     { q: "I'm going to the library now.", a: "나는 지금 도서관에 가는 길이야." },
-                    { q: "Do you have any plans for tonight?", a: "오늘 밤에 무슨 계획 있니?" },
                     { q: "That sounds like a great idea.", a: "그거 정말 좋은 생각인 것 같아." },
-                    { q: "I need to buy some milk.", a: "우유를 좀 사야 해." },
-                    { q: "Where is the nearest subway station?", a: "가장 가까운 지하철역이 어디인가요?" },
-                    { q: "Can you help me with this?", a: "이것 좀 도와줄 수 있니?" },
-                    { q: "It's a beautiful day, isn't it?", a: "정말 아름다운 날이야, 그렇지 않니?" },
-                    { q: "I hope you have a nice weekend.", a: "네가 멋진 주말을 보내길 바라." }
+                    { q: "I need to buy some milk.", a: "우유를 좀 사야 해." }
                 ];
                 const selected = templates.sort(() => 0.5 - Math.random()).slice(0, 5);
                 const results = selected.map(t => ({ def: t.a, ex: t.q, id: Date.now() + Math.random() }));
                 setPool(p => ({ ...p, Daily: [...(p.Daily || []), ...results].slice(0, 25) }));
+            };
+
+            const fillSpecificPool = async (cat) => {
+                if (loadingState[cat] || (pool[cat]?.length >= 20)) return;
+                setLoadingState(p => ({ ...p, [cat]: true }));
+                if (cat === 'Daily') { await generateAIDaily(); setLoadingState(p => ({ ...p, [cat]: false })); return; }
+                const batch = Array.from({ length: 4 }, () => fetchQuoteFromAPI(cat));
+                try {
+                    const results = await Promise.all(batch);
+                    const valid = results.filter(q => q !== null);
+                    if (valid.length > 0) setPool(p => ({ ...p, [cat]: [...(p[cat] || []), ...valid].slice(0, 25) }));
+                } finally { setLoadingState(p => ({ ...p, [cat]: false })); }
             };
 
             const fetchQuoteFromAPI = async (cat) => {
@@ -118,36 +152,8 @@
                 return null;
             };
 
-            const fillSpecificPool = async (cat) => {
-                if (loadingState[cat] || (pool[cat]?.length >= 20)) return;
-                setLoadingState(p => ({ ...p, [cat]: true }));
-                if (cat === 'Daily') {
-                    await generateAIDaily();
-                    setLoadingState(p => ({ ...p, [cat]: false }));
-                    return;
-                }
-                const batch = Array.from({ length: 4 }, () => fetchQuoteFromAPI(cat));
-                try {
-                    const results = await Promise.all(batch);
-                    const valid = results.filter(q => q !== null);
-                    if (valid.length > 0) setPool(p => ({ ...p, [cat]: [...(p[cat] || []), ...valid].slice(0, 25) }));
-                } finally { setLoadingState(p => ({ ...p, [cat]: false })); }
-            };
-
-            const resetCategory = (cat) => {
-                if(prompt("비밀번호를 입력하세요.") === "1234") {
-                    setPool(p => ({ ...p, [cat]: [] }));
-                    alert(`${CATS[cat]} DB가 초기화되었습니다.`);
-                } else { alert("비밀번호가 틀렸습니다."); }
-            };
-
-            const resetAllDB = () => {
-                if(prompt("모든 데이터를 삭제하시겠습니까? 비밀번호를 입력하세요.") === "1234") {
-                    setPool({ Daily: [], Wisdom: [], Cinema: [] });
-                    setUserRegistry([]);
-                    alert("전체 DB가 초기화되었습니다.");
-                } else { alert("비밀번호가 틀렸습니다."); }
-            };
+            const resetCategory = (cat) => { if(prompt("비밀번호") === "1234") { setPool(p => ({ ...p, [cat]: [] })); alert("초기화됨"); } };
+            const resetAllDB = () => { if(prompt("비밀번호") === "1234") { setPool({ Daily: [], Wisdom: [], Cinema: [] }); setUserRegistry([]); alert("초기화됨"); } };
 
             useEffect(() => {
                 if (user) {
@@ -171,14 +177,16 @@
             return (
                 <div className="min-h-screen pb-10 max-w-md mx-auto relative">
                     <header className="p-5 flex justify-between items-center bg-white/90 backdrop-blur-md sticky top-0 z-50 border-b shadow-sm">
-                        <h1 className="font-black text-2xl text-indigo-600 italic tracking-tighter" onClick={() => setPage('dashboard')}>Writing</h1>
+                        <h1 className="font-black text-2xl text-indigo-600 italic tracking-tighter" onClick={() => setPage('home')}>Writing</h1>
                         <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 bg-slate-50 rounded-xl text-slate-600 btn-active"><i data-lucide={menuOpen?"x":"menu"}></i></button>
                     </header>
 
                     {menuOpen && (
                         <div className="fixed inset-0 bg-black/30 z-40 animate-fade" onClick={() => setMenuOpen(false)}>
                             <div className="absolute right-4 top-20 w-60 bg-white rounded-[2.5rem] p-6 shadow-2xl space-y-2" onClick={e=>e.stopPropagation()}>
-                                <div onClick={()=>{setPage('dashboard');setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="home"></i> 홈</div>
+                                <div onClick={()=>{setPage('home');setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="home"></i> 홈 (성경)</div>
+                                <div onClick={()=>{setPage('dashboard');setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="pencil"></i> 작문 학습</div>
+                                <div onClick={()=>{setPage('vocab'); getNextVocab(); setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="book-open"></i> 단어 학습</div>
                                 <div onClick={()=>{setPage('history');setMenuOpen(false)}} className="flex items-center gap-4 p-4 font-bold hover:bg-slate-50 rounded-2xl cursor-pointer"><i data-lucide="award"></i> 기록</div>
                                 <div onClick={()=>{const pw = prompt("비밀번호"); if(pw==='1234'){setPage('admin_home');setMenuOpen(false);}}} className="flex items-center gap-4 p-4 font-bold text-indigo-600 hover:bg-indigo-50 rounded-2xl cursor-pointer"><i data-lucide="shield"></i> 관리자 설정</div>
                                 <hr />
@@ -188,13 +196,24 @@
                     )}
 
                     <main className="p-6">
+                        {page === 'home' && (
+                            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-8 animate-fade">
+                                <div className="bg-indigo-50 p-10 rounded-[3rem] border-2 border-indigo-100 shadow-inner">
+                                    <i data-lucide="quote" className="text-indigo-200 mb-4 mx-auto" size="40"></i>
+                                    <p className="text-xl font-black text-indigo-900 leading-relaxed italic mb-6">"{bibleVerse.text}"</p>
+                                    <span className="bg-indigo-600 text-white px-6 py-2 rounded-full font-bold text-sm tracking-wide shadow-md">{bibleVerse.ref} (NIV)</span>
+                                </div>
+                                <p className="text-slate-400 font-bold text-sm">Navigators Topical Memory System</p>
+                            </div>
+                        )}
+
                         {page === 'dashboard' && (
                             <div className="space-y-6 animate-fade">
+                                <h2 className="text-2xl font-black italic px-2">Writing Study</h2>
                                 <div className="grid gap-3">
                                     {Object.keys(CATS).map(c => (
                                         <button key={c} onClick={()=>{
                                             setCategory(c); 
-                                            // 카테고리를 바꿔도 즉시 문장을 소모(setCurrentQuote)하지 않음
                                             if(!currentQuote && pool[c]?.length > 0) {
                                                 setCurrentQuote(pool[c][0]);
                                                 setPool(p=>({...p, [c]:p[c].slice(1)}));
@@ -207,11 +226,35 @@
                                         <h2 className="text-2xl font-black leading-tight italic mb-8">
                                             {currentQuote ? `"${currentQuote.def}"` : "문장을 불러오는 중..."}
                                         </h2>
-                                        <button onClick={()=>{
-                                            if(currentQuote) setPage('quiz');
-                                            else alert("잠시만 기다려주세요.");
-                                        }} className="bg-white text-indigo-600 w-full py-4 rounded-2xl font-black shadow-lg btn-active">훈련 시작</button>
+                                        <button onClick={()=>{if(currentQuote) setPage('quiz');}} className="bg-white text-indigo-600 w-full py-4 rounded-2xl font-black shadow-lg btn-active">훈련 시작</button>
                                     </div>
+                                )}
+                            </div>
+                        )}
+
+                        {page === 'vocab' && vocabCard && (
+                            <div className="space-y-8 animate-fade text-center">
+                                <h2 className="text-2xl font-black italic">Vocab Study</h2>
+                                <div className="bg-white p-12 rounded-[3.5rem] border-4 border-slate-50 shadow-xl min-h-[300px] flex flex-col items-center justify-center space-y-6">
+                                    <div className="text-4xl font-black text-indigo-600">
+                                        {vocabCard.mode === 'en-to-ko' ? vocabCard.en : vocabCard.ko}
+                                    </div>
+                                    {showVocabAns && (
+                                        <div className="animate-fade space-y-4">
+                                            <div className="text-xl font-bold text-slate-400">
+                                                {vocabCard.mode === 'en-to-ko' ? vocabCard.ko : vocabCard.en}
+                                            </div>
+                                            <div className="bg-slate-50 p-4 rounded-2xl text-sm font-medium italic text-slate-500 border">
+                                                "{vocabCard.ex}"
+                                            </div>
+                                            <button onClick={()=>speak(vocabCard.en)} className="p-3 text-indigo-600 bg-indigo-50 rounded-full"><i data-lucide="volume-2"></i></button>
+                                        </div>
+                                    )}
+                                </div>
+                                {!showVocabAns ? (
+                                    <button onClick={()=>setShowVocabAns(true)} className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black shadow-lg btn-active">정답 확인</button>
+                                ) : (
+                                    <button onClick={getNextVocab} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black shadow-lg btn-active">다음 단어</button>
                                 )}
                             </div>
                         )}
@@ -222,14 +265,11 @@
                                     setCurrentQuote(pool[category][0]);
                                     setPool(p=>({...p, [category]:p[category].slice(1)}));
                                     fillSpecificPool(category);
-                                } else {
-                                    setCurrentQuote(null);
-                                    setPage('dashboard');
-                                }
+                                } else { setCurrentQuote(null); setPage('dashboard'); }
                             }} onFinish={(q,s)=>{
                                 const h = [{date:new Date().toLocaleDateString(), quote:q.ex, def:q.def, score:s}, ...history].slice(0,50);
                                 setHistory(h); localStorage.setItem(`writingHistory_${user}`, JSON.stringify(h));
-                            }} speak={speak} onHome={()=>setPage('dashboard')} />
+                            }} speak={speak} />
                         )}
 
                         {page === 'history' && (
@@ -257,7 +297,6 @@
                                         <i data-lucide="chevron-right"></i>
                                     </button>
                                 </div>
-                                <button onClick={()=>setPage('dashboard')} className="w-full py-4 text-slate-400 font-bold">나가기</button>
                             </div>
                         )}
 
@@ -334,7 +373,7 @@
             );
         }
 
-        function QuizView({ q, onNext, onFinish, speak, onHome }) {
+        function QuizView({ q, onNext, onFinish, speak }) {
             const [input, setInput] = useState('');
             const [checked, setChecked] = useState(false);
             const [hintOpen, setHintOpen] = useState(false);
